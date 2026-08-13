@@ -17,6 +17,7 @@ export type ReleaseRecoveryAttempt = {
   workflowId: string | null;
   workflowPath: string | null;
   sourceRunId: number | null;
+  sourceRunAttempt: number | null;
   runId: number | null;
   status: ReleaseRecoveryStatus;
   detail: string | null;
@@ -25,6 +26,7 @@ export type ReleaseRecoveryAttempt = {
 };
 
 const RECOVERY_POLL_MS = 10_000;
+const RERUN_MATERIALIZE_TIMEOUT_MS = 90_000;
 const activeRecoverySyncs = new Map<number, Promise<ReleaseRecoveryState | undefined>>();
 
 const channelRetries: Partial<Record<string, Partial<Record<Exclude<ReleaseRecoveryKind, 'workflow'>, { path: string; inputs: (version: string) => Record<string, string> }>>>> = {
@@ -51,6 +53,7 @@ db.exec(`
     workflow_id TEXT,
     workflow_path TEXT,
     source_run_id INTEGER,
+    source_run_attempt INTEGER,
     run_id INTEGER,
     status TEXT NOT NULL DEFAULT 'requested',
     detail TEXT,
@@ -61,6 +64,11 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_release_recovery_plan ON release_recovery_attempts(plan_id, requested_at DESC);
   CREATE INDEX IF NOT EXISTS idx_release_recovery_active ON release_recovery_attempts(status, updated_at);
 `);
+
+const recoveryColumns = db.prepare('PRAGMA table_info(release_recovery_attempts)').all() as Array<{ name: string }>;
+if (!recoveryColumns.some((column) => column.name === 'source_run_attempt')) {
+  db.exec('ALTER TABLE release_recovery_attempts ADD COLUMN source_run_attempt INTEGER');
+}
 
 function mapAttempt(row: any): ReleaseRecoveryAttempt {
   return {
@@ -73,6 +81,7 @@ function mapAttempt(row: any): ReleaseRecoveryAttempt {
     workflowId: row.workflow_id || null,
     workflowPath: row.workflow_path || null,
     sourceRunId: row.source_run_id == null ? null : Number(row.source_run_id),
+    sourceRunAttempt: row.source_run_attempt == null ? null : Number(row.source_run_attempt),
     runId: row.run_id == null ? null : Number(row.run_id),
     status: row.status as ReleaseRecoveryStatus,
     detail: row.detail || null,
@@ -104,6 +113,7 @@ function insertAttempt(input: {
   workflowId?: string | null;
   workflowPath?: string | null;
   sourceRunId?: number | null;
+  sourceRunAttempt?: number | null;
   runId?: number | null;
   status?: ReleaseRecoveryStatus;
   detail?: string | null;
@@ -111,8 +121,8 @@ function insertAttempt(input: {
   const result = db.prepare(`
     INSERT INTO release_recovery_attempts (
       plan_id, kind, target, action, run_row_id, workflow_id, workflow_path,
-      source_run_id, run_id, status, detail
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      source_run_id, source_run_attempt, run_id, status, detail
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     input.planId,
     input.kind,
@@ -122,6 +132,7 @@ function insertAttempt(input: {
     input.workflowId ?? null,
     input.workflowPath ?? null,
     input.sourceRunId ?? null,
+    input.sourceRunAttempt ?? null,
     input.runId ?? null,
     input.status || 'requested',
     input.detail ?? null
@@ -160,6 +171,46 @@ function requestedAtMs(value: string) {
   return Number.isFinite(parsed) ? parsed : Date.now();
 }
 
+function updatePlanRunFromMapped(rowId: number, run: { id: number; runNumber: number; status: string; conclusion: string | null; htmlUrl: string }) {
+  db.prepare(`
+    UPDATE release_plan_runs
+    SET run_id = ?, run_number = ?, status = ?, conclusion = ?, run_url = ?,
+        dispatch_state = 'manual', dispatch_error = NULL, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(run.id, run.runNumber, run.status, run.conclusion, run.htmlUrl, rowId);
+}
+
+function updatePlanRunFromRaw(rowId: number, run: { id: number; run_number: number; status: string | null; conclusion: string | null; html_url: string }) {
+  db.prepare(`
+    UPDATE release_plan_runs
+    SET run_id = ?, run_number = ?, status = ?, conclusion = ?, run_url = ?,
+        dispatch_error = NULL, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(run.id, run.run_number, run.status, run.conclusion, run.html_url, rowId);
+}
+
+function maybeResumeCorePlan(planId: number) {
+  const pendingWorkflowRecovery = db.prepare(`
+    SELECT 1 FROM release_recovery_attempts
+    WHERE plan_id = ? AND kind = 'workflow' AND status = 'requested'
+    LIMIT 1
+  `).get(planId);
+  if (pendingWorkflowRecovery) return;
+
+  const activeOrSuccessfulWorkflowRecovery = db.prepare(`
+    SELECT 1 FROM release_recovery_attempts
+    WHERE plan_id = ? AND kind = 'workflow' AND status IN ('running','success')
+    LIMIT 1
+  `).get(planId);
+  if (!activeOrSuccessfulWorkflowRecovery) return;
+
+  db.prepare(`
+    UPDATE release_plans
+    SET status = 'RUNNING', error_message = NULL, completed_at = NULL, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(planId);
+}
+
 async function resolveDispatchedRun(plan: Awaited<ReturnType<typeof requirePlan>>, attempt: ReleaseRecoveryAttempt) {
   if (attempt.runId || !attempt.workflowId) return attempt.runId;
   const recent = await listRunsForWorkflow(plan.project, attempt.workflowId, 20);
@@ -172,22 +223,58 @@ async function resolveDispatchedRun(plan: Awaited<ReturnType<typeof requirePlan>
   return candidate.id;
 }
 
-async function syncWorkflowRecovery(attempt: ReleaseRecoveryAttempt) {
-  if (!attempt.runRowId) return;
-  const row = db.prepare('SELECT status, conclusion, run_number FROM release_plan_runs WHERE id = ?').get(attempt.runRowId) as any;
-  if (!row) return updateAttempt(attempt.id, { status: 'failed', detail: '原发布流水线记录已不存在' });
-  if (row.status !== 'completed') {
-    return updateAttempt(attempt.id, { status: 'running', detail: `恢复中的 Workflow${row.run_number ? ` #${row.run_number}` : ''}` });
+async function syncWorkflowRecovery(plan: Awaited<ReturnType<typeof requirePlan>>, attempt: ReleaseRecoveryAttempt) {
+  if (!attempt.runRowId) return updateAttempt(attempt.id, { status: 'failed', detail: '原发布流水线记录不存在' });
+
+  if (!attempt.sourceRunId) {
+    const runId = await resolveDispatchedRun(plan, attempt);
+    if (!runId) {
+      if (Date.now() - requestedAtMs(attempt.requestedAt) > RERUN_MATERIALIZE_TIMEOUT_MS) {
+        return updateAttempt(attempt.id, { status: 'failed', detail: '重新 dispatch 后 90 秒仍未找到对应 Workflow Run' });
+      }
+      return updateAttempt(attempt.id, { status: 'requested', detail: '已重新 dispatch，等待 GitHub 创建 Workflow Run' });
+    }
+    const run = await getWorkflowRun(plan.project, runId);
+    updatePlanRunFromMapped(attempt.runRowId, run);
+    if (run.status !== 'completed') return updateAttempt(attempt.id, { runId, status: 'running', detail: `Workflow #${run.runNumber} 正在恢复` });
+    if (run.conclusion === 'success') return updateAttempt(attempt.id, { runId, status: 'success', detail: `Workflow #${run.runNumber} 恢复成功` });
+    return updateAttempt(attempt.id, { runId, status: 'failed', detail: `Workflow #${run.runNumber} 恢复后仍为 ${run.conclusion || 'failed'}` });
   }
-  if (row.conclusion === 'success') {
-    return updateAttempt(attempt.id, { status: 'success', detail: `Workflow${row.run_number ? ` #${row.run_number}` : ''} 恢复成功` });
+
+  const { data } = await octokit.rest.actions.getWorkflowRun({
+    owner: plan.project.owner,
+    repo: plan.project.repo,
+    run_id: attempt.sourceRunId
+  });
+  const currentAttempt = Number(data.run_attempt || 1);
+  const sourceAttempt = attempt.sourceRunAttempt || 1;
+  const rerunMaterialized = currentAttempt > sourceAttempt || data.status !== 'completed';
+
+  if (!rerunMaterialized) {
+    if (Date.now() - requestedAtMs(attempt.requestedAt) > RERUN_MATERIALIZE_TIMEOUT_MS) {
+      return updateAttempt(attempt.id, { status: 'failed', detail: `GitHub 已接受 rerun 请求，但 90 秒后仍停留在旧的 attempt #${sourceAttempt}` });
+    }
+    return updateAttempt(attempt.id, { status: 'requested', detail: `GitHub 已接受 rerun，等待 attempt #${sourceAttempt + 1} 启动` });
   }
-  return updateAttempt(attempt.id, { status: 'failed', detail: `Workflow 恢复后仍为 ${row.conclusion || 'failed'}` });
+
+  updatePlanRunFromRaw(attempt.runRowId, data as any);
+  if (data.status !== 'completed') {
+    return updateAttempt(attempt.id, { status: 'running', detail: `Workflow rerun attempt #${currentAttempt} 正在执行` });
+  }
+  if (data.conclusion === 'success') {
+    return updateAttempt(attempt.id, { status: 'success', detail: `Workflow rerun attempt #${currentAttempt} 恢复成功` });
+  }
+  return updateAttempt(attempt.id, { status: 'failed', detail: `Workflow rerun attempt #${currentAttempt} 仍为 ${data.conclusion || 'failed'}` });
 }
 
 async function syncChannelRecovery(plan: Awaited<ReturnType<typeof requirePlan>>, attempt: ReleaseRecoveryAttempt, channels: Channel[]) {
   const runId = await resolveDispatchedRun(plan, attempt);
-  if (!runId) return updateAttempt(attempt.id, { status: 'requested', detail: '已请求渠道恢复，等待 GitHub 创建 Workflow Run' });
+  if (!runId) {
+    if (Date.now() - requestedAtMs(attempt.requestedAt) > RERUN_MATERIALIZE_TIMEOUT_MS) {
+      return updateAttempt(attempt.id, { status: 'failed', detail: '渠道恢复请求后 90 秒仍未找到对应 Workflow Run' });
+    }
+    return updateAttempt(attempt.id, { status: 'requested', detail: '已请求渠道恢复，等待 GitHub 创建 Workflow Run' });
+  }
 
   let run;
   try {
@@ -236,20 +323,21 @@ export type ReleaseRecoveryState = {
 };
 
 async function syncReleaseRecoveryStateUnsafe(planId: number): Promise<ReleaseRecoveryState | undefined> {
-  const plan = await getReleasePlan(planId, true);
+  const plan = await getReleasePlan(planId, false);
   if (!plan) return undefined;
   const versionState = await buildReleaseVersionChannels(plan.project, plan.version);
   const active = listAttempts(planId).filter((attempt) => ['requested', 'running', 'waiting_platform'].includes(attempt.status));
 
   for (const attempt of active) {
     try {
-      if (attempt.kind === 'workflow') await syncWorkflowRecovery(attempt);
+      if (attempt.kind === 'workflow') await syncWorkflowRecovery(plan, attempt);
       else await syncChannelRecovery(plan, attempt, versionState.channels);
     } catch (error) {
       updateAttempt(attempt.id, { detail: error instanceof Error ? error.message : 'Recovery sync failed' });
     }
   }
 
+  maybeResumeCorePlan(planId);
   const refreshedPlan = await getReleasePlan(planId, false);
   if (!refreshedPlan) return undefined;
   return {
@@ -274,30 +362,34 @@ export async function retryFailedReleasePlanRuns(planId: number) {
   if (!failedRuns.length) throw Object.assign(new Error('该发布计划没有可重试的失败流水线'), { statusCode: 409 });
 
   let requested = 0;
-  let waitingForRun = false;
   for (const run of failedRuns) {
     try {
       if (run.runId) {
+        const before = await octokit.rest.actions.getWorkflowRun({ owner: plan.project.owner, repo: plan.project.repo, run_id: run.runId });
+        const sourceRunAttempt = Number(before.data.run_attempt || 1);
         if (run.conclusion === 'cancelled') {
           await octokit.request('POST /repos/{owner}/{repo}/actions/runs/{run_id}/rerun', {
             owner: plan.project.owner, repo: plan.project.repo, run_id: run.runId
           });
-          insertAttempt({ planId, kind: 'workflow', target: run.role, action: 'rerun-workflow', runRowId: run.id, workflowId: run.workflowId, workflowPath: run.workflowPath, sourceRunId: run.runId, runId: run.runId, detail: '重新运行整个已取消 Workflow' });
+          insertAttempt({
+            planId, kind: 'workflow', target: run.role, action: 'rerun-workflow', runRowId: run.id,
+            workflowId: run.workflowId, workflowPath: run.workflowPath, sourceRunId: run.runId,
+            sourceRunAttempt, runId: run.runId, detail: `已请求整条 rerun；等待 attempt #${sourceRunAttempt + 1}`
+          });
         } else {
           await rerunFailed(plan.project, run.runId);
-          insertAttempt({ planId, kind: 'workflow', target: run.role, action: 'rerun-failed-jobs', runRowId: run.id, workflowId: run.workflowId, workflowPath: run.workflowPath, sourceRunId: run.runId, runId: run.runId, detail: '仅重新运行失败 Job' });
+          insertAttempt({
+            planId, kind: 'workflow', target: run.role, action: 'rerun-failed-jobs', runRowId: run.id,
+            workflowId: run.workflowId, workflowPath: run.workflowPath, sourceRunId: run.runId,
+            sourceRunAttempt, runId: run.runId, detail: `已请求只重跑失败 Job；等待 attempt #${sourceRunAttempt + 1}`
+          });
         }
-        db.prepare("UPDATE release_plan_runs SET status = 'queued', conclusion = NULL, dispatch_error = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(run.id);
       } else {
         await dispatchWorkflow(plan.project, run.workflowId, plan.tagName, run.dispatchInputs);
-        insertAttempt({ planId, kind: 'workflow', target: run.role, action: 'workflow-dispatch', runRowId: run.id, workflowId: run.workflowId, workflowPath: run.workflowPath, detail: '重新 dispatch 原发布 Workflow' });
-        db.prepare(`
-          UPDATE release_plan_runs
-          SET dispatch_state = 'manual', dispatch_error = NULL, run_id = NULL, run_number = NULL,
-              status = NULL, conclusion = NULL, run_url = NULL, manifest_id = NULL, updated_at = CURRENT_TIMESTAMP
-          WHERE id = ?
-        `).run(run.id);
-        waitingForRun = true;
+        insertAttempt({
+          planId, kind: 'workflow', target: run.role, action: 'workflow-dispatch', runRowId: run.id,
+          workflowId: run.workflowId, workflowPath: run.workflowPath, detail: '已用原版本 Tag 重新 dispatch，等待新的 Workflow Run'
+        });
       }
       requested += 1;
     } catch (error) {
@@ -310,11 +402,6 @@ export async function retryFailedReleasePlanRuns(planId: number) {
   }
 
   if (!requested) throw Object.assign(new Error('失败流水线重试请求全部失败'), { statusCode: 502 });
-  db.prepare(`
-    UPDATE release_plans
-    SET status = ?, error_message = NULL, completed_at = NULL, updated_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `).run(waitingForRun ? 'WAITING_RUNS' : 'RUNNING', planId);
   return getReleaseRecoveryState(planId);
 }
 
