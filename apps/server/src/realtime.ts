@@ -67,7 +67,7 @@ export async function registerRealtime(app: FastifyInstance) {
       for await (const chunk of payload) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
       const rawBody = Buffer.concat(chunks);
       (request as FastifyRequest & { rawBody?: Buffer }).rawBody = rawBody;
-      const stream = Readable.from(rawBody);
+      const stream = Readable.from([rawBody]);
       (stream as Readable & { receivedEncodedLength?: number }).receivedEncodedLength = rawBody.length;
       return stream;
     }
