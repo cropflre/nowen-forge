@@ -8,11 +8,13 @@ import { appStorePlatformConfigured, giteePlatformConfigured } from './platforms
 import { syncManifestReleaseEvidence, withReleaseEvidence } from './releaseEvidence.js';
 import { buildReleaseCenter } from './releases.js';
 import { buildReleasePlanCenter, getReleasePlan, preflightRelease, startReleasePlan } from './releasePlans.js';
+import { getReleaseRecoveryState, retryFailedReleasePlanRuns, retryReleaseChannel } from './releaseRecovery.js';
 import { getPollIntervalMs, publishRealtime, webhookConfigured } from './realtime.js';
 
 const dispatchSchema = z.object({ ref: z.string().min(1), inputs: z.record(z.string()).default({}) });
 const manifestSchema = z.object({ version: z.string().trim().min(1).max(100).optional() });
 const releasePlanSchema = z.object({ version: z.string().trim().min(1).max(100), sourceRef: z.string().trim().min(1).max(200) });
+const releaseRecoveryChannelSchema = z.object({ kind: z.enum(['gitee', 'testflight', 'dockerhub']) });
 
 const obsoleteNowenDockerWarning = 'NOWEN 当前 Docker Workflow 只推 latest 与 commit SHA，不推版本号 Tag；发布计划成功后，Manifest 的 Docker 渠道仍可能显示版本不匹配。';
 
@@ -38,10 +40,11 @@ export async function registerApi(app: FastifyInstance) {
   app.get('/api/health', async () => ({
     ok: true,
     githubConfigured,
-    version: '0.7.0',
+    version: '0.8.0',
     realtime: { sse: true, webhookConfigured, pollIntervalMs: getPollIntervalMs() },
     manifests: { immutable: true, githubArtifactDigest: true, githubReleaseAssetDigest: true, appendOnlyReleaseEvidence: true },
     releaseOrchestrator: { enabled: true, persistent: true, tagPreflight: true },
+    releaseRecovery: { persistent: true, appendOnlyAttempts: true, failedJobsRetry: true, channelRetry: true },
     platformVerification: {
       giteeConfigured: giteePlatformConfigured,
       appStoreConnectConfigured: appStorePlatformConfigured,
@@ -163,6 +166,38 @@ export async function registerApi(app: FastifyInstance) {
     const plan = await getReleasePlan(Number(planId));
     if (!plan) return reply.code(404).send({ message: 'Release plan not found' });
     return normalizeReleasePlanPresentation(plan);
+  });
+
+  app.get('/api/release-plans/:planId/recovery', async (request, reply) => {
+    const { planId } = request.params as { planId: string };
+    const state = await getReleaseRecoveryState(Number(planId));
+    if (!state) return reply.code(404).send({ message: 'Release plan not found' });
+    return normalizeReleasePlanPresentation(state);
+  });
+
+  app.post('/api/release-plans/:planId/retry-failed', async (request, reply) => {
+    const { planId } = request.params as { planId: string };
+    const state = await retryFailedReleasePlanRuns(Number(planId));
+    if (!state) return reply.code(404).send({ message: 'Release plan not found' });
+    const plan = state.plan;
+    publishRealtime({
+      type: 'release', projectId: plan.project.id, projectSlug: plan.project.slug,
+      repository: `${plan.project.owner}/${plan.project.repo}`, source: 'forge', action: `release-plan:${plan.id}:retry-failed`
+    });
+    return reply.code(202).send(normalizeReleasePlanPresentation(state));
+  });
+
+  app.post('/api/release-plans/:planId/retry-channel', async (request, reply) => {
+    const { planId } = request.params as { planId: string };
+    const body = releaseRecoveryChannelSchema.parse(request.body ?? {});
+    const state = await retryReleaseChannel(Number(planId), body.kind);
+    if (!state) return reply.code(404).send({ message: 'Release plan not found' });
+    const plan = state.plan;
+    publishRealtime({
+      type: 'release', projectId: plan.project.id, projectSlug: plan.project.slug,
+      repository: `${plan.project.owner}/${plan.project.repo}`, source: 'forge', action: `release-plan:${plan.id}:retry-${body.kind}`
+    });
+    return reply.code(202).send(normalizeReleasePlanPresentation(state));
   });
 
   app.post('/api/projects/:id/workflows/:workflowId/dispatch', async (request, reply) => {
