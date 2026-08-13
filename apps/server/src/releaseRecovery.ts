@@ -189,20 +189,11 @@ function updatePlanRunFromRaw(rowId: number, run: { id: number; run_number: numb
   `).run(run.id, run.run_number, run.status, run.conclusion, run.html_url, rowId);
 }
 
-function maybeResumeCorePlan(planId: number) {
-  const pendingWorkflowRecovery = db.prepare(`
-    SELECT 1 FROM release_recovery_attempts
-    WHERE plan_id = ? AND kind = 'workflow' AND status = 'requested'
-    LIMIT 1
-  `).get(planId);
-  if (pendingWorkflowRecovery) return;
-
-  const activeOrSuccessfulWorkflowRecovery = db.prepare(`
-    SELECT 1 FROM release_recovery_attempts
-    WHERE plan_id = ? AND kind = 'workflow' AND status IN ('running','success')
-    LIMIT 1
-  `).get(planId);
-  if (!activeOrSuccessfulWorkflowRecovery) return;
+function maybeResumeCorePlan(planId: number, currentWorkflowAttemptIds: number[]) {
+  if (!currentWorkflowAttemptIds.length) return;
+  const current = currentWorkflowAttemptIds.map(getAttempt).filter((attempt): attempt is ReleaseRecoveryAttempt => Boolean(attempt));
+  if (!current.length || current.some((attempt) => attempt.status === 'requested')) return;
+  if (!current.some((attempt) => attempt.status === 'running' || attempt.status === 'success')) return;
 
   db.prepare(`
     UPDATE release_plans
@@ -327,6 +318,7 @@ async function syncReleaseRecoveryStateUnsafe(planId: number): Promise<ReleaseRe
   if (!plan) return undefined;
   const versionState = await buildReleaseVersionChannels(plan.project, plan.version);
   const active = listAttempts(planId).filter((attempt) => ['requested', 'running', 'waiting_platform'].includes(attempt.status));
+  const currentWorkflowAttemptIds = active.filter((attempt) => attempt.kind === 'workflow').map((attempt) => attempt.id);
 
   for (const attempt of active) {
     try {
@@ -337,7 +329,7 @@ async function syncReleaseRecoveryStateUnsafe(planId: number): Promise<ReleaseRe
     }
   }
 
-  maybeResumeCorePlan(planId);
+  maybeResumeCorePlan(planId, currentWorkflowAttemptIds);
   const refreshedPlan = await getReleasePlan(planId, false);
   if (!refreshedPlan) return undefined;
   return {
