@@ -69,6 +69,8 @@ export type GithubRelease = {
     id: number;
     name: string;
     size: number;
+    digest?: string | null;
+    contentType?: string | null;
     downloadCount: number;
     browserDownloadUrl: string;
   }>;
@@ -114,6 +116,31 @@ export type ManifestArtifact = {
   expiresAt: string | null;
 };
 
+export type ManifestReleaseAsset = {
+  githubAssetId: number;
+  name: string;
+  sizeInBytes: number;
+  digest: string | null;
+  contentType: string | null;
+  downloadUrl: string;
+  createdAt: string | null;
+  sourceGithubArtifactId: number | null;
+  sourceArtifactName: string | null;
+  bindingBasis: 'name' | 'platform' | 'unbound';
+};
+
+export type ManifestReleaseEvidence = {
+  githubReleaseId: number;
+  tagName: string;
+  releaseUrl: string;
+  tagCommitSha: string;
+  commitMatches: boolean;
+  draft: boolean;
+  prerelease: boolean;
+  observedAt: string;
+  assets: ManifestReleaseAsset[];
+};
+
 export type ManifestChannel = {
   kind: string;
   label: string;
@@ -141,6 +168,7 @@ export type ReleaseManifest = {
   totalSizeBytes: number;
   channels: ManifestChannel[];
   artifacts: ManifestArtifact[];
+  releaseEvidence: ManifestReleaseEvidence | null;
   createdAt: string;
 };
 
@@ -150,7 +178,12 @@ export type ManifestCenter = {
     manifestCount: number;
     artifactCount: number;
     digestedArtifactCount: number;
+    releaseAssetCount: number;
+    digestedReleaseAssetCount: number;
+    releaseBoundManifestCount: number;
+    exactCommitMatchCount: number;
     totalSizeBytes: number;
+    totalReleaseAssetSizeBytes: number;
     failedRunCount: number;
   };
 };
