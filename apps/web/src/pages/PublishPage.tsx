@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, ExternalLink, GitCommit, LoaderCircle, Radio, Rocket, ShieldCheck, Tag } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CircleMinus, ExternalLink, GitCommit, LoaderCircle, Radio, RefreshCw, Rocket, RotateCcw, ShieldCheck, Tag } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
-import type { Project, ReleasePlan, ReleasePlanCenter, ReleasePlanRun, ReleasePreflight } from '../types';
+import type { Project, ReleasePlan, ReleasePlanCenter, ReleasePlanRun, ReleasePreflight, ReleaseRecoveryChannel, ReleaseRecoveryState } from '../types';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
 import '../publish.css';
 
 const activeStatuses = new Set(['PREPARING', 'WAITING_RUNS', 'RUNNING']);
+const activeRecoveryStatuses = new Set(['requested', 'running', 'waiting_platform']);
 
 export default function PublishPage() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -77,7 +78,7 @@ export default function PublishPage() {
   }
 
   return <section>
-    <div className="page-head"><div><span className="eyebrow">ONE-CLICK RELEASE</span><h1>一键发布</h1><p>Preflight 锁定 Commit → 创建版本 Tag → 触发正式流水线 → 自动追踪 → 固化 Manifest</p></div><span className={realtime ? 'live-state connected' : 'live-state'}><Radio size={13} />{realtime ? '实时连接' : '正在重连'}</span></div>
+    <div className="page-head"><div><span className="eyebrow">ONE-CLICK RELEASE</span><h1>一键发布</h1><p>Preflight 锁定 Commit → 创建版本 Tag → 触发正式流水线 → 自动追踪 → 固化 Manifest → 按失败节点恢复</p></div><span className={realtime ? 'live-state connected' : 'live-state'}><Radio size={13} />{realtime ? '实时连接' : '正在重连'}</span></div>
     {error && <div className="alert error">{error}</div>}
 
     <div className="publish-layout">
@@ -102,8 +103,8 @@ export default function PublishPage() {
         <Stat label="已成功" value={center.stats.succeeded} />
         <Stat label="需关注" value={center.stats.attention} />
       </div>
-      <div className="section-title"><div><h2>{selectedProject?.displayName || '项目'} 发布历史</h2><p>发布计划由服务端持久追踪，关闭浏览器也不会中断。</p></div></div>
-      <div className="release-plan-list">{projectPlans.map((plan) => <PlanCard key={plan.id} plan={plan} />)}{!projectPlans.length && <div className="panel empty">这个项目还没有一键发布记录</div>}</div>
+      <div className="section-title"><div><h2>{selectedProject?.displayName || '项目'} 发布历史</h2><p>V0.8 支持只恢复失败流水线或失败渠道；原 Run / Manifest 保持历史证据，不会被覆盖。</p></div></div>
+      <div className="release-plan-list">{projectPlans.map((plan) => <PlanCard key={plan.id} plan={plan} onChanged={loadPlans} />)}{!projectPlans.length && <div className="panel empty">这个项目还没有一键发布记录</div>}</div>
     </>}
   </section>;
 }
@@ -120,15 +121,87 @@ function PreflightCard({ data, onStart, starting }: { data: ReleasePreflight; on
   </div>;
 }
 
-function PlanCard({ plan }: { plan: ReleasePlan }) {
+function PlanCard({ plan, onChanged }: { plan: ReleasePlan; onChanged: () => Promise<void> }) {
+  const [recovery, setRecovery] = useState<ReleaseRecoveryState | null>(null);
+  const [checkingRecovery, setCheckingRecovery] = useState(false);
+  const [recoveryAction, setRecoveryAction] = useState('');
+  const [recoveryError, setRecoveryError] = useState('');
   const completed = plan.runs.filter((run) => run.status === 'completed').length;
+  const failedRuns = plan.runs.filter((run) => run.dispatchState === 'failed' || (run.status === 'completed' && run.conclusion !== 'success'));
   const statusLabel: Record<string, string> = { PREPARING: '准备中', WAITING_RUNS: '等待流水线', RUNNING: '构建中', SUCCEEDED: '发布成功', PARTIAL: '部分成功', FAILED: '发布失败' };
+  const recoveryActive = recovery?.recoveries.some((attempt) => activeRecoveryStatuses.has(attempt.status)) || false;
+
+  async function inspectRecovery() {
+    try {
+      setCheckingRecovery(true); setRecoveryError('');
+      setRecovery(await api.releaseRecovery(plan.id));
+    } catch (e) { setRecoveryError(e instanceof Error ? e.message : '检查恢复状态失败'); }
+    finally { setCheckingRecovery(false); }
+  }
+
+  useEffect(() => {
+    if (!recoveryActive) return;
+    const timer = window.setInterval(() => void inspectRecovery(), 5000);
+    return () => window.clearInterval(timer);
+  }, [recoveryActive, plan.id]);
+
+  async function retryFailed() {
+    if (!failedRuns.length) return;
+    const ok = window.confirm(`确认恢复 ${plan.version} 的 ${failedRuns.length} 条失败流水线？\n\n已失败的 Workflow 会优先只重跑失败 Job；原 Run 和 Manifest 历史不会删除。`);
+    if (!ok) return;
+    try {
+      setRecoveryAction('workflow'); setRecoveryError('');
+      setRecovery(await api.retryFailedRelease(plan.id));
+      await onChanged();
+    } catch (e) { setRecoveryError(e instanceof Error ? e.message : '重试失败流水线失败'); }
+    finally { setRecoveryAction(''); }
+  }
+
+  async function retryChannel(channel: ReleaseRecoveryChannel) {
+    if (!channel.retryable || channel.kind === 'github') return;
+    const ok = window.confirm(`确认${channel.retryLabel || '重试渠道'} ${plan.version}？\n\n只会触发 ${channel.label} 对应的恢复 Workflow，不会重新执行其他已成功渠道。`);
+    if (!ok) return;
+    try {
+      setRecoveryAction(channel.kind); setRecoveryError('');
+      setRecovery(await api.retryReleaseChannel(plan.id, channel.kind));
+    } catch (e) { setRecoveryError(e instanceof Error ? e.message : '渠道重试失败'); }
+    finally { setRecoveryAction(''); }
+  }
+
   return <article className="panel release-plan-card">
-    <div className="release-plan-head"><div><div className="release-plan-version"><span className={`plan-status plan-${plan.status.toLowerCase()}`}>{statusLabel[plan.status] || plan.status}</span><h3>{plan.version}</h3></div><p>{plan.project.displayName} · {plan.sourceRef} · <code>{plan.sourceSha.slice(0, 12)}</code></p></div><div className="release-plan-progress"><strong>{completed}/{plan.runs.length}</strong><span>流水线完成</span></div></div>
+    <div className="release-plan-head"><div><div className="release-plan-version"><span className={`plan-status plan-${plan.status.toLowerCase()}`}>{statusLabel[plan.status] || plan.status}</span><h3>{plan.version}</h3>{recoveryActive && <span className="recovery-live"><LoaderCircle size={12} className="spin" />恢复中</span>}</div><p>{plan.project.displayName} · {plan.sourceRef} · <code>{plan.sourceSha.slice(0, 12)}</code></p></div><div className="release-plan-progress"><strong>{completed}/{plan.runs.length}</strong><span>流水线完成</span></div></div>
     {plan.errorMessage && <div className="alert error compact-alert">{plan.errorMessage}</div>}
+    {recoveryError && <div className="alert error compact-alert">{recoveryError}</div>}
     <div className="plan-run-list">{plan.runs.map((run) => <PlanRunRow run={run} key={run.id} />)}</div>
+
+    <div className="recovery-actions">
+      {failedRuns.length > 0 && <button className="button secondary" onClick={retryFailed} disabled={Boolean(recoveryAction)}>{recoveryAction === 'workflow' ? <LoaderCircle size={15} className="spin" /> : <RotateCcw size={15} />}重试失败流水线</button>}
+      <button className="button secondary" onClick={inspectRecovery} disabled={checkingRecovery}>{checkingRecovery ? <LoaderCircle size={15} className="spin" /> : <RefreshCw size={15} />}{recovery ? '重新检查渠道' : '检查发布渠道'}</button>
+    </div>
+
+    {recovery && <RecoveryPanel state={recovery} action={recoveryAction} onRetry={retryChannel} />}
+
     <div className="release-plan-foot"><span>{plan.tagCreated ? `已创建 ${plan.tagName}` : plan.tagReused ? `复用 ${plan.tagName}` : plan.tagName}</span><span>{new Date(plan.createdAt).toLocaleString()}</span>{plan.runs.some((run) => run.manifestId) && <Link to="/artifacts">查看 Manifest →</Link>}</div>
   </article>;
+}
+
+function RecoveryPanel({ state, action, onRetry }: { state: ReleaseRecoveryState; action: string; onRetry: (channel: ReleaseRecoveryChannel) => void }) {
+  return <div className="recovery-panel">
+    <div className="recovery-panel-head"><div><strong>发布恢复</strong><span>按 {state.plan.version} 精确检查，不使用其他最新版本状态</span></div><small>原发布证据只读 · 恢复记录追加保存</small></div>
+    <div className="recovery-channels">{state.channels.map((channel) => <RecoveryChannelRow key={channel.kind} channel={channel} busy={action === channel.kind} onRetry={() => onRetry(channel)} />)}</div>
+    {state.recoveries.length > 0 && <div className="recovery-history"><strong>恢复记录</strong>{state.recoveries.slice(0, 8).map((attempt) => <div className="recovery-attempt" key={attempt.id}><span className={`recovery-attempt-state state-${attempt.status}`}>{recoveryStatusLabel(attempt.status)}</span><div><b>{attempt.target}</b><small>{attempt.detail || attempt.action}</small></div><time>{new Date(attempt.requestedAt).toLocaleString()}</time></div>)}</div>}
+  </div>;
+}
+
+function RecoveryChannelRow({ channel, busy, onRetry }: { channel: ReleaseRecoveryChannel; busy: boolean; onRetry: () => void }) {
+  const successful = channel.status === 'success';
+  const running = channel.status === 'running';
+  const Icon = successful ? CheckCircle2 : channel.status === 'empty' ? CircleMinus : AlertTriangle;
+  return <div className="recovery-channel-row"><div className={`recovery-channel-icon channel-${channel.status}`}><Icon size={15} /></div><div className="recovery-channel-copy"><div><strong>{channel.label}</strong><span className={`release-state ${channel.status}`}>{successful ? '正常' : running ? '处理中' : channel.status === 'empty' ? '缺失' : channel.status === 'failed' ? '失败' : '需确认'}</span>{channel.verification === 'platform' && <em>平台已验证</em>}{channel.verification === 'unconfigured' && <em className="unconfigured">平台未配置</em>}</div><p>{channel.summary}</p>{channel.detail && <small>{channel.detail}</small>}</div><div className="recovery-channel-actions">{channel.retryable && <button className="button secondary compact-button" onClick={onRetry} disabled={busy}>{busy ? <LoaderCircle size={13} className="spin" /> : <RotateCcw size={13} />}{channel.retryLabel}</button>}{channel.url && <a href={channel.url} target="_blank" rel="noreferrer"><ExternalLink size={14} /></a>}</div></div>;
+}
+
+function recoveryStatusLabel(status: string) {
+  return status === 'requested' ? '已请求' : status === 'running' ? '执行中' : status === 'waiting_platform' ? '等平台' : status === 'success' ? '成功' : '失败';
 }
 
 function PlanRunRow({ run }: { run: ReleasePlanRun }) {
