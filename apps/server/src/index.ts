@@ -4,9 +4,11 @@ import fastifyStatic from '@fastify/static';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { registerApi } from './routes.js';
+import { registerRealtime, startRunWatcher } from './realtime.js';
 
 const app = Fastify({ logger: true });
 await app.register(cors, { origin: true });
+await registerRealtime(app);
 await registerApi(app);
 
 const webRoot = fileURLToPath(new URL('../../web/dist/', import.meta.url));
@@ -27,3 +29,12 @@ app.setErrorHandler((error, _request, reply) => {
 const port = Number(process.env.PORT || 3001);
 const host = process.env.HOST || '0.0.0.0';
 await app.listen({ port, host });
+const stopWatcher = startRunWatcher(app.log);
+
+const shutdown = async () => {
+  stopWatcher();
+  await app.close();
+  process.exit(0);
+};
+process.once('SIGTERM', () => void shutdown());
+process.once('SIGINT', () => void shutdown());
