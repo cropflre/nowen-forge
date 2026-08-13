@@ -1,4 +1,4 @@
-import type { ManifestCenter, ReleaseCenter, ReleaseManifest, ReleasePlan, ReleasePlanCenter, ReleasePreflight, WorkflowSchema } from './types';
+import type { ManifestCenter, ReleaseCenter, ReleaseManifest, ReleasePlan, ReleasePlanCenter, ReleasePreflight, ReleaseRecoveryState, WorkflowSchema } from './types';
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, { ...init, headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) } });
@@ -31,5 +31,8 @@ export const api = {
   startRelease: (projectId: number, version: string, sourceRef: string) => request<{ plan: ReleasePlan }>(`/api/projects/${projectId}/release/start`, { method: 'POST', body: JSON.stringify({ version, sourceRef }) }),
   releasePlans: () => request<ReleasePlanCenter>('/api/release-plans'),
   releasePlan: (planId: number) => request<ReleasePlan>(`/api/release-plans/${planId}`),
+  releaseRecovery: (planId: number) => request<ReleaseRecoveryState>(`/api/release-plans/${planId}/recovery`),
+  retryFailedRelease: (planId: number) => request<ReleaseRecoveryState>(`/api/release-plans/${planId}/retry-failed`, { method: 'POST' }),
+  retryReleaseChannel: (planId: number, kind: 'gitee' | 'testflight' | 'dockerhub') => request<ReleaseRecoveryState>(`/api/release-plans/${planId}/retry-channel`, { method: 'POST', body: JSON.stringify({ kind }) }),
   health: () => request<any>('/api/health')
 };
