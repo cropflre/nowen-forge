@@ -5,7 +5,7 @@
   "description": "Unified build and release console for the Nowen ecosystem",
   "workspaces": ["apps/*"],
   "scripts": {
-    "dev": "concurrently -n server,web -c auto \"npm run dev -w @nowen-forge/server\" \"npm run dev -w @nowen-forge/web\"",
+    "dev": "concurrently -k -n API,WEB -c auto \"npm run dev -w @nowen-forge/server\" \"npm run dev -w @nowen-forge/web\"",
     "build": "npm run build -w @nowen-forge/web && npm run build -w @nowen-forge/server",
     "start": "npm run start -w @nowen-forge/server",
     "typecheck": "npm run typecheck -w @nowen-forge/web && npm run typecheck -w @nowen-forge/server"
