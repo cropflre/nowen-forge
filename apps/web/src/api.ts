@@ -1,10 +1,24 @@
 import type { ManifestCenter, ReleaseCenter, ReleaseManifest, ReleasePlan, ReleasePlanCenter, ReleasePreflight, ReleaseRecoveryState, WorkflowSchema } from './types';
 
+export type GitHubAuthStatus = {
+  authenticated: boolean;
+  mode: 'oauth' | 'token' | 'anonymous';
+  loginMode: 'web' | 'device' | null;
+  oauthConfigured: boolean;
+  webOAuthConfigured: boolean;
+  user: { login: string; name: string | null; avatarUrl: string | null; htmlUrl: string | null } | null;
+  scope: string | null;
+  tokenFallbackConfigured: boolean;
+};
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, { ...init, headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) } });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(body.message || `Request failed: ${response.status}`);
+    const error = new Error(body.message || `Request failed: ${response.status}`) as Error & { code?: string; resetAt?: string | null };
+    error.code = body.code;
+    error.resetAt = body.resetAt;
+    throw error;
   }
   return response.json();
 }
@@ -34,5 +48,10 @@ export const api = {
   releaseRecovery: (planId: number) => request<ReleaseRecoveryState>(`/api/release-plans/${planId}/recovery`),
   retryFailedRelease: (planId: number) => request<ReleaseRecoveryState>(`/api/release-plans/${planId}/retry-failed`, { method: 'POST' }),
   retryReleaseChannel: (planId: number, kind: 'gitee' | 'testflight' | 'dockerhub') => request<ReleaseRecoveryState>(`/api/release-plans/${planId}/retry-channel`, { method: 'POST', body: JSON.stringify({ kind }) }),
-  health: () => request<any>('/api/health')
+  health: () => request<any>('/api/health'),
+  githubAuthStatus: () => request<GitHubAuthStatus>('/api/auth/github/status'),
+  githubWebLogin: (returnTo: string) => request<{ authorizeUrl: string }>('/api/auth/github/web/start', { method: 'POST', body: JSON.stringify({ returnTo }) }),
+  githubDeviceStart: () => request<{ flowId: string; userCode: string; verificationUri: string; expiresIn: number; interval: number }>('/api/auth/github/device/start', { method: 'POST' }),
+  githubDevicePoll: (flowId: string) => request<{ status: 'pending' | 'authorized'; interval?: number; user?: GitHubAuthStatus['user'] }>('/api/auth/github/device/poll', { method: 'POST', body: JSON.stringify({ flowId }) }),
+  githubLogout: () => request<GitHubAuthStatus>('/api/auth/github/logout', { method: 'POST' })
 };
