@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { getProject, getReleaseManifest, listProjects, recordDispatch } from './db.js';
 import { cancelRun, dispatchWorkflow, downloadArtifactArchive, getRepo, getRunDetails, getWorkflowSchema, githubConfigured, listRefs, listRuns, listWorkflows, rerunFailed } from './github.js';
 import { buildManifestCenter, createManifestFromRun } from './manifests.js';
+import { syncManifestReleaseEvidence, withReleaseEvidence } from './releaseEvidence.js';
 import { buildReleaseCenter } from './releases.js';
 import { buildReleasePlanCenter, getReleasePlan, preflightRelease, startReleasePlan } from './releasePlans.js';
 import { getPollIntervalMs, publishRealtime, webhookConfigured } from './realtime.js';
@@ -22,6 +23,20 @@ const releasePlanSchema = z.object({
   sourceRef: z.string().trim().min(1).max(200)
 });
 
+const obsoleteNowenDockerWarning = 'NOWEN 当前 Docker Workflow 只推 latest 与 commit SHA，不推版本号 Tag；发布计划成功后，Manifest 的 Docker 渠道仍可能显示版本不匹配。';
+
+function normalizeReleasePlanPresentation<T>(value: T): T {
+  if (!value || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map((item) => normalizeReleasePlanPresentation(item)) as T;
+  const output = { ...(value as Record<string, any>) };
+  if (output.project?.slug === 'NOWEN' && Array.isArray(output.warnings)) {
+    output.warnings = output.warnings.filter((warning: string) => warning !== obsoleteNowenDockerWarning);
+  }
+  if (Array.isArray(output.plans)) output.plans = output.plans.map((plan: any) => normalizeReleasePlanPresentation(plan));
+  if (output.plan) output.plan = normalizeReleasePlanPresentation(output.plan);
+  return output as T;
+}
+
 function requireProject(id: string) {
   const project = getProject(Number(id));
   if (!project) throw Object.assign(new Error('Project not found'), { statusCode: 404 });
@@ -32,13 +47,13 @@ export async function registerApi(app: FastifyInstance) {
   app.get('/api/health', async () => ({
     ok: true,
     githubConfigured,
-    version: '0.5.0',
+    version: '0.6.0',
     realtime: {
       sse: true,
       webhookConfigured,
       pollIntervalMs: getPollIntervalMs()
     },
-    manifests: { immutable: true, githubArtifactDigest: true },
+    manifests: { immutable: true, githubArtifactDigest: true, githubReleaseAssetDigest: true, appendOnlyReleaseEvidence: true },
     releaseOrchestrator: { enabled: true, persistent: true, tagPreflight: true }
   }));
 
@@ -117,13 +132,29 @@ export async function registerApi(app: FastifyInstance) {
     const { manifestId } = request.params as { manifestId: string };
     const manifest = getReleaseManifest(Number(manifestId));
     if (!manifest) return reply.code(404).send({ message: 'Manifest not found' });
-    return manifest;
+    return withReleaseEvidence(manifest);
+  });
+
+  app.post('/api/manifests/:manifestId/sync-release-assets', async (request, reply) => {
+    if (!githubConfigured) return reply.code(409).send({ message: 'GITHUB_TOKEN is not configured on the server' });
+    const { manifestId } = request.params as { manifestId: string };
+    const result = await syncManifestReleaseEvidence(Number(manifestId));
+    const manifest = result.manifest;
+    publishRealtime({
+      type: 'release',
+      projectId: manifest.project.id,
+      projectSlug: manifest.project.slug,
+      repository: `${manifest.project.owner}/${manifest.project.repo}`,
+      source: 'forge',
+      action: result.found ? 'release-assets-synced' : 'release-assets-not-found'
+    });
+    return reply.send(result);
   });
 
   app.post('/api/projects/:id/release/preflight', async (request) => {
     const { id } = request.params as { id: string };
     const body = releasePlanSchema.parse(request.body ?? {});
-    return preflightRelease(requireProject(id), body.version, body.sourceRef);
+    return normalizeReleasePlanPresentation(await preflightRelease(requireProject(id), body.version, body.sourceRef));
   });
 
   app.post('/api/projects/:id/release/start', async (request, reply) => {
@@ -131,7 +162,7 @@ export async function registerApi(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     const project = requireProject(id);
     const body = releasePlanSchema.parse(request.body ?? {});
-    const plan = await startReleasePlan(project, body.version, body.sourceRef);
+    const plan = normalizeReleasePlanPresentation(await startReleasePlan(project, body.version, body.sourceRef));
     publishRealtime({
       type: 'release',
       projectId: project.id,
@@ -143,13 +174,13 @@ export async function registerApi(app: FastifyInstance) {
     return reply.code(201).send({ plan });
   });
 
-  app.get('/api/release-plans', async () => buildReleasePlanCenter());
+  app.get('/api/release-plans', async () => normalizeReleasePlanPresentation(await buildReleasePlanCenter()));
 
   app.get('/api/release-plans/:planId', async (request, reply) => {
     const { planId } = request.params as { planId: string };
     const plan = await getReleasePlan(Number(planId));
     if (!plan) return reply.code(404).send({ message: 'Release plan not found' });
-    return plan;
+    return normalizeReleasePlanPresentation(plan);
   });
 
   app.post('/api/projects/:id/workflows/:workflowId/dispatch', async (request, reply) => {
