@@ -23,7 +23,7 @@ export const webhookConfigured = Boolean(process.env.GITHUB_WEBHOOK_SECRET?.trim
 export function getPollIntervalMs() {
   const configured = Number(process.env.RUN_POLL_INTERVAL_MS || '');
   if (Number.isFinite(configured) && configured >= 5000) return configured;
-  return githubConfigured ? 12000 : 300000;
+  return 12000;
 }
 
 export function publishRealtime(event: Omit<RealtimeEvent, 'at'> & { at?: string }) {
@@ -118,7 +118,7 @@ export function startRunWatcher(log?: FastifyBaseLogger) {
   let stopped = false;
 
   const tick = async () => {
-    if (ticking || stopped) return;
+    if (ticking || stopped || !githubConfigured) return;
     ticking = true;
     try {
       await Promise.all(listProjects().map(async (project) => {

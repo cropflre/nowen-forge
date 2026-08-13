@@ -1,10 +1,63 @@
 import { Octokit } from '@octokit/rest';
 import { parse } from 'yaml';
 import type { Project } from './db.js';
+import { getGitHubToken, onGitHubAuthChange } from './githubAuth.js';
 
-const token = process.env.GITHUB_TOKEN?.trim();
-export const githubConfigured = Boolean(token);
-export const octokit = new Octokit(token ? { auth: token } : {});
+export let githubConfigured = Boolean(getGitHubToken());
+
+let activeToken: string | undefined;
+let activeOctokit = new Octokit();
+const apiCache = new Map<string, { expiresAt: number; promise: Promise<any> }>();
+
+function getOctokit() {
+  const nextToken = getGitHubToken();
+  if (nextToken !== activeToken) {
+    activeToken = nextToken;
+    activeOctokit = new Octokit(nextToken ? { auth: nextToken } : {});
+  }
+  return activeOctokit;
+}
+
+export const octokit = new Proxy({} as Octokit, {
+  get(_target, property) {
+    const instance = getOctokit() as any;
+    const value = instance[property as any];
+    return typeof value === 'function' ? value.bind(instance) : value;
+  }
+});
+
+onGitHubAuthChange(() => {
+  githubConfigured = Boolean(getGitHubToken());
+  activeToken = undefined;
+  apiCache.clear();
+});
+
+function projectKey(project: Project) {
+  return `${project.owner}/${project.repo}`;
+}
+
+function cacheTtl(authenticatedMs: number, anonymousMs = authenticatedMs) {
+  return githubConfigured ? authenticatedMs : anonymousMs;
+}
+
+async function cached<T>(key: string, ttlMs: number, loader: () => Promise<T>): Promise<T> {
+  const now = Date.now();
+  const existing = apiCache.get(key);
+  if (existing && existing.expiresAt > now) return existing.promise as Promise<T>;
+
+  let promise: Promise<T>;
+  promise = loader().catch((error) => {
+    if (apiCache.get(key)?.promise === promise) apiCache.delete(key);
+    throw error;
+  });
+  apiCache.set(key, { expiresAt: now + ttlMs, promise });
+  return promise;
+}
+
+function invalidateProject(project: Project) {
+  const prefix = `${projectKey(project)}:`;
+  for (const key of apiCache.keys()) if (key.startsWith(prefix)) apiCache.delete(key);
+}
 
 export type WorkflowInput = {
   name: string;
@@ -16,42 +69,48 @@ export type WorkflowInput = {
 };
 
 export async function listWorkflows(project: Project) {
-  const { data } = await octokit.rest.actions.listRepoWorkflows({ owner: project.owner, repo: project.repo, per_page: 100 });
-  return data.workflows
-    .map((workflow) => ({
-      id: workflow.id,
-      name: workflow.name,
-      path: workflow.path,
-      state: workflow.state,
-      recommended: project.workflowHints.some((hint) => workflow.path.endsWith(`/${hint}`) || workflow.path.endsWith(hint))
-    }))
-    .sort((a, b) => Number(b.recommended) - Number(a.recommended) || a.name.localeCompare(b.name));
+  return cached(`${projectKey(project)}:workflows`, cacheTtl(5 * 60_000, 10 * 60_000), async () => {
+    const { data } = await getOctokit().rest.actions.listRepoWorkflows({ owner: project.owner, repo: project.repo, per_page: 100 });
+    return data.workflows
+      .map((workflow) => ({
+        id: workflow.id,
+        name: workflow.name,
+        path: workflow.path,
+        state: workflow.state,
+        recommended: project.workflowHints.some((hint) => workflow.path.endsWith(`/${hint}`) || workflow.path.endsWith(hint))
+      }))
+      .sort((a, b) => Number(b.recommended) - Number(a.recommended) || a.name.localeCompare(b.name));
+  });
 }
 
 export async function listRefs(project: Project) {
-  const [{ data: branches }, { data: tags }] = await Promise.all([
-    octokit.rest.repos.listBranches({ owner: project.owner, repo: project.repo, per_page: 100 }),
-    octokit.rest.repos.listTags({ owner: project.owner, repo: project.repo, per_page: 100 })
-  ]);
-  return {
-    branches: branches.map((branch) => branch.name),
-    tags: tags.map((tag) => tag.name)
-  };
+  return cached(`${projectKey(project)}:refs`, cacheTtl(2 * 60_000, 10 * 60_000), async () => {
+    const [{ data: branches }, { data: tags }] = await Promise.all([
+      getOctokit().rest.repos.listBranches({ owner: project.owner, repo: project.repo, per_page: 100 }),
+      getOctokit().rest.repos.listTags({ owner: project.owner, repo: project.repo, per_page: 100 })
+    ]);
+    return {
+      branches: branches.map((branch) => branch.name),
+      tags: tags.map((tag) => tag.name)
+    };
+  });
 }
 
 export async function getRepo(project: Project) {
-  const { data } = await octokit.rest.repos.get({ owner: project.owner, repo: project.repo });
-  return { defaultBranch: data.default_branch, private: data.private, htmlUrl: data.html_url };
+  return cached(`${projectKey(project)}:meta`, cacheTtl(5 * 60_000, 10 * 60_000), async () => {
+    const { data } = await getOctokit().rest.repos.get({ owner: project.owner, repo: project.repo });
+    return { defaultBranch: data.default_branch, private: data.private, htmlUrl: data.html_url };
+  });
 }
 
 export async function resolveCommit(project: Project, ref: string) {
-  const { data } = await octokit.rest.repos.getCommit({ owner: project.owner, repo: project.repo, ref });
+  const { data } = await getOctokit().rest.repos.getCommit({ owner: project.owner, repo: project.repo, ref });
   return { sha: data.sha, htmlUrl: data.html_url };
 }
 
 export async function getTagCommit(project: Project, tagName: string) {
   try {
-    await octokit.rest.git.getRef({ owner: project.owner, repo: project.repo, ref: `tags/${tagName}` });
+    await getOctokit().rest.git.getRef({ owner: project.owner, repo: project.repo, ref: `tags/${tagName}` });
     const commit = await resolveCommit(project, tagName);
     return { exists: true as const, sha: commit.sha };
   } catch (error) {
@@ -61,51 +120,54 @@ export async function getTagCommit(project: Project, tagName: string) {
 }
 
 export async function createTagRef(project: Project, tagName: string, sha: string) {
-  const { data } = await octokit.rest.git.createRef({
+  const { data } = await getOctokit().rest.git.createRef({
     owner: project.owner,
     repo: project.repo,
     ref: `refs/tags/${tagName}`,
     sha
   });
+  invalidateProject(project);
   return { ref: data.ref, sha: data.object.sha };
 }
 
 export async function getWorkflowSchema(project: Project, workflowId: string) {
-  const workflows = await listWorkflows(project);
-  const workflow = workflows.find((item) => String(item.id) === String(workflowId));
-  if (!workflow) throw Object.assign(new Error('Workflow not found'), { statusCode: 404 });
+  return cached(`${projectKey(project)}:workflow-schema:${workflowId}`, cacheTtl(5 * 60_000, 10 * 60_000), async () => {
+    const workflows = await listWorkflows(project);
+    const workflow = workflows.find((item) => String(item.id) === String(workflowId));
+    if (!workflow) throw Object.assign(new Error('Workflow not found'), { statusCode: 404 });
 
-  const { data } = await octokit.rest.repos.getContent({ owner: project.owner, repo: project.repo, path: workflow.path });
-  if (Array.isArray(data) || data.type !== 'file' || !('content' in data)) {
-    throw Object.assign(new Error('Workflow source cannot be read'), { statusCode: 422 });
-  }
+    const { data } = await getOctokit().rest.repos.getContent({ owner: project.owner, repo: project.repo, path: workflow.path });
+    if (Array.isArray(data) || data.type !== 'file' || !('content' in data)) {
+      throw Object.assign(new Error('Workflow source cannot be read'), { statusCode: 422 });
+    }
 
-  const source = Buffer.from(data.content.replace(/\n/g, ''), 'base64').toString('utf8');
-  const document = parse(source) as any;
-  const trigger = document?.on;
-  const dispatchConfig = getDispatchConfig(trigger);
-  const dispatchable = dispatchConfig !== null;
-  const inputsObject = dispatchConfig && typeof dispatchConfig === 'object' ? dispatchConfig.inputs : undefined;
-  const inputs = normalizeInputs(inputsObject);
-  const warnings: string[] = [];
+    const source = Buffer.from(data.content.replace(/\n/g, ''), 'base64').toString('utf8');
+    const document = parse(source) as any;
+    const trigger = document?.on;
+    const dispatchConfig = getDispatchConfig(trigger);
+    const dispatchable = dispatchConfig !== null;
+    const inputsObject = dispatchConfig && typeof dispatchConfig === 'object' ? dispatchConfig.inputs : undefined;
+    const inputs = normalizeInputs(inputsObject);
+    const warnings: string[] = [];
 
-  if (!dispatchable) warnings.push('该 Workflow 没有 workflow_dispatch 触发器，不能从 Nowen Forge 手动启动。');
-  if (/if:\s*startsWith\(github\.ref,\s*['"]refs\/tags\//.test(source)) {
-    warnings.push('检测到 tag-only Job 条件：从普通分支手动运行时，部分构建/发布 Job 可能会被跳过。');
-  }
-  if (/push:\s*[\s\S]{0,180}?tags:/m.test(source) && dispatchable) {
-    warnings.push('该流水线同时支持 Tag 自动触发；正式发版前请确认手动运行和 Tag 发版的行为是否一致。');
-  }
+    if (!dispatchable) warnings.push('该 Workflow 没有 workflow_dispatch 触发器，不能从 Nowen Forge 手动启动。');
+    if (/if:\s*startsWith\(github\.ref,\s*['"]refs\/tags\//.test(source)) {
+      warnings.push('检测到 tag-only Job 条件：从普通分支手动运行时，部分构建/发布 Job 可能会被跳过。');
+    }
+    if (/push:\s*[\s\S]{0,180}?tags:/m.test(source) && dispatchable) {
+      warnings.push('该流水线同时支持 Tag 自动触发；正式发版前请确认手动运行和 Tag 发版的行为是否一致。');
+    }
 
-  return {
-    workflowId: workflow.id,
-    name: workflow.name,
-    path: workflow.path,
-    dispatchable,
-    sourceSha: data.sha,
-    inputs,
-    warnings
-  };
+    return {
+      workflowId: workflow.id,
+      name: workflow.name,
+      path: workflow.path,
+      dispatchable,
+      sourceSha: data.sha,
+      inputs,
+      warnings
+    };
+  });
 }
 
 function getDispatchConfig(trigger: any): any | null {
@@ -136,54 +198,66 @@ function normalizeInputs(value: any): WorkflowInput[] {
 }
 
 export async function listRuns(project: Project, perPage = 10) {
-  const { data } = await octokit.rest.actions.listWorkflowRunsForRepo({ owner: project.owner, repo: project.repo, per_page: Math.min(perPage, 50) });
-  return data.workflow_runs.map(mapRun);
+  const limit = Math.min(perPage, 50);
+  return cached(`${projectKey(project)}:runs:${limit}`, cacheTtl(10_000, 5 * 60_000), async () => {
+    const { data } = await getOctokit().rest.actions.listWorkflowRunsForRepo({ owner: project.owner, repo: project.repo, per_page: limit });
+    return data.workflow_runs.map(mapRun);
+  });
 }
 
 export async function listRunsForWorkflow(project: Project, workflowId: number | string, perPage = 5) {
-  const { data } = await octokit.request('GET /repos/{owner}/{repo}/actions/workflows/{workflow_id}/runs', {
-    owner: project.owner,
-    repo: project.repo,
-    workflow_id: workflowId,
-    per_page: Math.min(perPage, 20)
+  const limit = Math.min(perPage, 20);
+  return cached(`${projectKey(project)}:workflow-runs:${workflowId}:${limit}`, cacheTtl(8_000, 5 * 60_000), async () => {
+    const { data } = await getOctokit().request('GET /repos/{owner}/{repo}/actions/workflows/{workflow_id}/runs', {
+      owner: project.owner,
+      repo: project.repo,
+      workflow_id: workflowId,
+      per_page: limit
+    });
+    return data.workflow_runs.map(mapRun);
   });
-  return data.workflow_runs.map(mapRun);
 }
 
 export async function getWorkflowRun(project: Project, runId: number) {
-  const { data } = await octokit.rest.actions.getWorkflowRun({ owner: project.owner, repo: project.repo, run_id: runId });
-  return mapRun(data);
+  return cached(`${projectKey(project)}:run:${runId}`, cacheTtl(5_000, 5 * 60_000), async () => {
+    const { data } = await getOctokit().rest.actions.getWorkflowRun({ owner: project.owner, repo: project.repo, run_id: runId });
+    return mapRun(data);
+  });
 }
 
 export async function listGithubReleases(project: Project, perPage = 10) {
-  const { data } = await octokit.rest.repos.listReleases({ owner: project.owner, repo: project.repo, per_page: Math.min(perPage, 30) });
-  return data.map((release) => ({
-    id: release.id,
-    tagName: release.tag_name,
-    name: release.name || release.tag_name,
-    draft: release.draft,
-    prerelease: release.prerelease,
-    createdAt: release.created_at,
-    publishedAt: release.published_at,
-    htmlUrl: release.html_url,
-    assets: release.assets.map((asset) => ({
-      id: asset.id,
-      name: asset.name,
-      size: asset.size,
-      downloadCount: asset.download_count,
-      browserDownloadUrl: asset.browser_download_url
-    }))
-  }));
+  const limit = Math.min(perPage, 30);
+  return cached(`${projectKey(project)}:releases:${limit}`, cacheTtl(30_000, 5 * 60_000), async () => {
+    const { data } = await getOctokit().rest.repos.listReleases({ owner: project.owner, repo: project.repo, per_page: limit });
+    return data.map((release) => ({
+      id: release.id,
+      tagName: release.tag_name,
+      name: release.name || release.tag_name,
+      draft: release.draft,
+      prerelease: release.prerelease,
+      createdAt: release.created_at,
+      publishedAt: release.published_at,
+      htmlUrl: release.html_url,
+      assets: release.assets.map((asset) => ({
+        id: asset.id,
+        name: asset.name,
+        size: asset.size,
+        downloadCount: asset.download_count,
+        browserDownloadUrl: asset.browser_download_url
+      }))
+    }));
+  });
 }
 
 export async function dispatchWorkflow(project: Project, workflowId: string, ref: string, inputs: Record<string, string>) {
-  await octokit.request('POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches', {
+  await getOctokit().request('POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches', {
     owner: project.owner,
     repo: project.repo,
     workflow_id: workflowId,
     ref,
     inputs
   });
+  invalidateProject(project);
 }
 
 function mapArtifact(artifact: any) {
@@ -200,35 +274,40 @@ function mapArtifact(artifact: any) {
 }
 
 export async function getRunDetails(project: Project, runId: number) {
-  const [{ data: run }, { data: jobs }, { data: artifacts }] = await Promise.all([
-    octokit.rest.actions.getWorkflowRun({ owner: project.owner, repo: project.repo, run_id: runId }),
-    octokit.rest.actions.listJobsForWorkflowRun({ owner: project.owner, repo: project.repo, run_id: runId, per_page: 100 }),
-    octokit.rest.actions.listWorkflowRunArtifacts({ owner: project.owner, repo: project.repo, run_id: runId, per_page: 100 })
-  ]);
+  return cached(`${projectKey(project)}:run-details:${runId}`, cacheTtl(8_000, 5 * 60_000), async () => {
+    const [{ data: run }, { data: jobs }, { data: artifacts }] = await Promise.all([
+      getOctokit().rest.actions.getWorkflowRun({ owner: project.owner, repo: project.repo, run_id: runId }),
+      getOctokit().rest.actions.listJobsForWorkflowRun({ owner: project.owner, repo: project.repo, run_id: runId, per_page: 100 }),
+      getOctokit().rest.actions.listWorkflowRunArtifacts({ owner: project.owner, repo: project.repo, run_id: runId, per_page: 100 })
+    ]);
 
-  return {
-    run: mapRun(run),
-    jobs: jobs.jobs.map((job) => ({
-      id: job.id,
-      name: job.name,
-      status: job.status,
-      conclusion: job.conclusion,
-      startedAt: job.started_at,
-      completedAt: job.completed_at,
-      htmlUrl: job.html_url,
-      steps: job.steps?.map((step) => ({ name: step.name, status: step.status, conclusion: step.conclusion, number: step.number })) || []
-    })),
-    artifacts: artifacts.artifacts.map(mapArtifact)
-  };
+    return {
+      run: mapRun(run),
+      jobs: jobs.jobs.map((job) => ({
+        id: job.id,
+        name: job.name,
+        status: job.status,
+        conclusion: job.conclusion,
+        startedAt: job.started_at,
+        completedAt: job.completed_at,
+        htmlUrl: job.html_url,
+        steps: job.steps?.map((step) => ({ name: step.name, status: step.status, conclusion: step.conclusion, number: step.number })) || []
+      })),
+      artifacts: artifacts.artifacts.map(mapArtifact)
+    };
+  });
 }
 
 export async function getArtifact(project: Project, artifactId: number) {
-  const { data } = await octokit.rest.actions.getArtifact({ owner: project.owner, repo: project.repo, artifact_id: artifactId });
-  return mapArtifact(data);
+  return cached(`${projectKey(project)}:artifact:${artifactId}`, cacheTtl(30_000, 5 * 60_000), async () => {
+    const { data } = await getOctokit().rest.actions.getArtifact({ owner: project.owner, repo: project.repo, artifact_id: artifactId });
+    return mapArtifact(data);
+  });
 }
 
 export async function downloadArtifactArchive(project: Project, artifactId: number) {
-  if (!token) throw Object.assign(new Error('GITHUB_TOKEN is required to download Actions artifacts'), { statusCode: 409 });
+  const token = getGitHubToken();
+  if (!token) throw Object.assign(new Error('GitHub 登录或 GITHUB_TOKEN 配置后才能下载 Actions Artifact'), { statusCode: 409 });
   const artifact = await getArtifact(project, artifactId);
   if (artifact.expired) throw Object.assign(new Error('Artifact has expired on GitHub'), { statusCode: 410 });
   const response = await fetch(`https://api.github.com/repos/${encodeURIComponent(project.owner)}/${encodeURIComponent(project.repo)}/actions/artifacts/${artifactId}/zip`, {
@@ -236,8 +315,7 @@ export async function downloadArtifactArchive(project: Project, artifactId: numb
     headers: {
       Accept: 'application/vnd.github+json',
       Authorization: `Bearer ${token}`,
-      'X-GitHub-Api-Version': '2022-11-28',
-      'User-Agent': 'Nowen-Forge/0.5'
+      'User-Agent': 'Nowen-Forge/0.8'
     }
   });
   if (!response.ok || !response.body) {
@@ -247,19 +325,21 @@ export async function downloadArtifactArchive(project: Project, artifactId: numb
 }
 
 export async function rerunFailed(project: Project, runId: number) {
-  await octokit.request('POST /repos/{owner}/{repo}/actions/runs/{run_id}/rerun-failed-jobs', {
+  await getOctokit().request('POST /repos/{owner}/{repo}/actions/runs/{run_id}/rerun-failed-jobs', {
     owner: project.owner,
     repo: project.repo,
     run_id: runId
   });
+  invalidateProject(project);
 }
 
 export async function cancelRun(project: Project, runId: number) {
-  await octokit.request('POST /repos/{owner}/{repo}/actions/runs/{run_id}/cancel', {
+  await getOctokit().request('POST /repos/{owner}/{repo}/actions/runs/{run_id}/cancel', {
     owner: project.owner,
     repo: project.repo,
     run_id: runId
   });
+  invalidateProject(project);
 }
 
 export function mapRun(run: any) {

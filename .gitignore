@@ -4,5 +4,6 @@ dist/
 .env.local
 data/*.db
 data/*.db-*
+data/github-auth.json
 .DS_Store
 *.log
