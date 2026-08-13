@@ -5,6 +5,7 @@ import ProjectsPage from './pages/ProjectsPage';
 import ProjectPage from './pages/ProjectPage';
 import ReleaseCenterPage from './pages/ReleaseCenterPage';
 import SettingsPage from './pages/SettingsPage';
+import './realtime.css';
 
 export default function App() {
   return <Layout><Routes>
