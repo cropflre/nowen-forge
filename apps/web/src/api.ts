@@ -34,5 +34,9 @@ export const api = {
   releaseRecovery: (planId: number) => request<ReleaseRecoveryState>(`/api/release-plans/${planId}/recovery`),
   retryFailedRelease: (planId: number) => request<ReleaseRecoveryState>(`/api/release-plans/${planId}/retry-failed`, { method: 'POST' }),
   retryReleaseChannel: (planId: number, kind: 'gitee' | 'testflight' | 'dockerhub') => request<ReleaseRecoveryState>(`/api/release-plans/${planId}/retry-channel`, { method: 'POST', body: JSON.stringify({ kind }) }),
-  health: () => request<any>('/api/health')
+  health: async () => {
+    const health = await request<any>('/api/health');
+    const evidence = await request<any>('/api/evidence/capabilities').catch(() => null);
+    return evidence ? { ...health, version: evidence.version, evidence } : health;
+  }
 };

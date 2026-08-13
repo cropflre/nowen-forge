@@ -1,6 +1,6 @@
 {
   "name": "nowen-forge",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": true,
   "description": "Unified build and release console for the Nowen ecosystem",
   "workspaces": ["apps/*"],
