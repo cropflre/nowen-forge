@@ -183,16 +183,21 @@ Nowen Forge (React + Fastify)
 
 ## 本地开发
 
-要求 Node.js 20+。
+要求 Node.js 20+。首次安装依赖后，后续在仓库根目录只需要一条命令：
 
 ```bash
-cp .env.example .env
 npm install
 npm run dev
 ```
 
-- Web: `http://localhost:5173`
-- API: `http://localhost:3001`
+`npm run dev` 会同时启动 Fastify API 和 React/Vite Web，并在任一进程退出时一起停止，避免残留后台进程。
+
+- Web: `http://localhost:18666`
+- API: `http://localhost:18667`
+- Web 开发服务器会把 `/api/*` 代理到 `http://127.0.0.1:18667`
+- Vite 使用 `strictPort`，18666 被占用时直接报错，不会自动漂移到其他端口
+
+`.env` 不是启动开发环境的硬性要求；需要 GitHub/Gitee/TestFlight 能力时再从 `.env.example` 复制并填写对应凭证即可。
 
 ## Docker
 
@@ -201,7 +206,7 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-访问 `http://localhost:3001`，SQLite 数据保存在 `./data/nowen-forge.db`。
+访问 `http://localhost:18667`，SQLite 数据保存在 `./data/nowen-forge.db`。
 
 ## GitHub Token 权限
 
@@ -219,7 +224,7 @@ Repository permissions
 GITHUB_TOKEN=github_pat_xxx
 GITHUB_WEBHOOK_SECRET=your-long-random-secret   # 可选
 RUN_POLL_INTERVAL_MS=12000                      # 可选
-PORT=3001
+PORT=18667
 HOST=0.0.0.0
 ```
 
