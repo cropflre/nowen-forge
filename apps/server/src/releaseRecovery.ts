@@ -99,6 +99,14 @@ function listAttempts(planId: number) {
   return (db.prepare('SELECT * FROM release_recovery_attempts WHERE plan_id = ? ORDER BY id DESC LIMIT 50').all(planId) as any[]).map(mapAttempt);
 }
 
+function hasActiveRecovery(planId: number, kind: ReleaseRecoveryKind) {
+  return Boolean(db.prepare(`
+    SELECT 1 FROM release_recovery_attempts
+    WHERE plan_id = ? AND kind = ? AND status IN ('requested','running','waiting_platform')
+    LIMIT 1
+  `).get(planId, kind));
+}
+
 function listActiveRecoveryPlanIds() {
   return (db.prepare("SELECT DISTINCT plan_id FROM release_recovery_attempts WHERE status IN ('requested','running','waiting_platform')").all() as any[])
     .map((row) => Number(row.plan_id));
@@ -205,9 +213,14 @@ function maybeResumeCorePlan(planId: number, currentWorkflowAttemptIds: number[]
 async function resolveDispatchedRun(plan: Awaited<ReturnType<typeof requirePlan>>, attempt: ReleaseRecoveryAttempt) {
   if (attempt.runId || !attempt.workflowId) return attempt.runId;
   const recent = await listRunsForWorkflow(plan.project, attempt.workflowId, 20);
-  const floor = requestedAtMs(attempt.requestedAt) - 15_000;
+  const floor = requestedAtMs(attempt.requestedAt) - 3_000;
+  const previousRunIds = new Set(
+    listAttempts(attempt.planId)
+      .filter((item) => item.id !== attempt.id && item.workflowId === attempt.workflowId && item.runId)
+      .map((item) => item.runId as number)
+  );
   const candidate = recent
-    .filter((run) => run.headBranch === plan.tagName && run.headSha === plan.sourceSha && new Date(run.createdAt).getTime() >= floor)
+    .filter((run) => run.headBranch === plan.tagName && run.headSha === plan.sourceSha && new Date(run.createdAt).getTime() >= floor && !previousRunIds.has(run.id))
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
   if (!candidate) return null;
   updateAttempt(attempt.id, { runId: candidate.id, status: candidate.status === 'completed' ? 'requested' : 'running', detail: `已绑定 Workflow Run #${candidate.runNumber}` });
@@ -349,6 +362,7 @@ export function getReleaseRecoveryState(planId: number) {
 
 export async function retryFailedReleasePlanRuns(planId: number) {
   if (!githubConfigured) throw Object.assign(new Error('GITHUB_TOKEN is not configured on the server'), { statusCode: 409 });
+  if (hasActiveRecovery(planId, 'workflow')) throw Object.assign(new Error('该发布计划已有失败流水线恢复正在执行，请先等待当前恢复结束'), { statusCode: 409 });
   const plan = await requirePlan(planId);
   const failedRuns = plan.runs.filter((run) => run.dispatchState === 'failed' || (run.status === 'completed' && run.conclusion !== 'success'));
   if (!failedRuns.length) throw Object.assign(new Error('该发布计划没有可重试的失败流水线'), { statusCode: 409 });
@@ -399,6 +413,7 @@ export async function retryFailedReleasePlanRuns(planId: number) {
 
 export async function retryReleaseChannel(planId: number, kind: Exclude<ReleaseRecoveryKind, 'workflow'>) {
   if (!githubConfigured) throw Object.assign(new Error('GITHUB_TOKEN is not configured on the server'), { statusCode: 409 });
+  if (hasActiveRecovery(planId, kind)) throw Object.assign(new Error(`该发布计划已有 ${kind} 渠道恢复正在执行，请先等待当前恢复结束`), { statusCode: 409 });
   const plan = await requirePlan(planId);
   const config = channelRetries[plan.project.slug]?.[kind];
   if (!config) throw Object.assign(new Error(`${plan.project.displayName} 暂不支持单独重试 ${kind} 渠道`), { statusCode: 422 });
