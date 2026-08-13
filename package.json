@@ -1,0 +1,17 @@
+{
+  "name": "nowen-forge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Unified build and release console for the Nowen ecosystem",
+  "workspaces": ["apps/*"],
+  "scripts": {
+    "dev": "concurrently -n server,web -c auto \"npm run dev -w @nowen-forge/server\" \"npm run dev -w @nowen-forge/web\"",
+    "build": "npm run build -w @nowen-forge/web && npm run build -w @nowen-forge/server",
+    "start": "npm run start -w @nowen-forge/server",
+    "typecheck": "npm run typecheck -w @nowen-forge/web && npm run typecheck -w @nowen-forge/server"
+  },
+  "engines": {"node": ">=20"},
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}
