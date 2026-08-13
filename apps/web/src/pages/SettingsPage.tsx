@@ -40,7 +40,7 @@ export default function SettingsPage() {
 
     <div className="panel docs"><h2>V0.8 发布恢复</h2><pre>{`失败核心 Workflow\n→ 优先 rerun failed jobs\n→ 被取消的 Run 才 rerun whole workflow\n\n渠道恢复\nGitee      → sync-gitee-release.yml(tag)\nTestFlight → ios-release.yml(tag, upload=true)\nDocker     → 项目对应 Docker / Release Workflow\n\n所有恢复动作\n→ release_recovery_attempts\n→ 服务端 watcher 持续追踪\n→ 原 Manifest / Run 历史不删除`}</pre></div>
     <div className="panel docs"><h2>最终平台验证配置</h2><pre>{`# Gitee\nGITEE_TOKEN=xxx\nGITEE_OWNER=cropflre\nGITEE_REPO=nowen-note\n\n# App Store Connect Team API Key\nAPPSTORE_ISSUER_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx\nAPPSTORE_API_KEY_ID=XXXXXXXXXX\nAPPSTORE_API_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\nAPPSTORE_BUNDLE_ID=com.nowen.note`}</pre></div>
-    <div className="panel docs"><h2>基础配置</h2><pre>{`GITHUB_TOKEN=github_pat_xxx\nGITHUB_WEBHOOK_SECRET=可选\nRUN_POLL_INTERVAL_MS=12000\nPORT=3001\n\n# Docker\ndocker compose up -d --build`}</pre></div>
+    <div className="panel docs"><h2>基础配置</h2><pre>{`# 本地开发：根目录执行 npm run dev\n# Web  http://localhost:18666\n# API  http://localhost:18667\n\nGITHUB_TOKEN=github_pat_xxx\nGITHUB_WEBHOOK_SECRET=可选\nRUN_POLL_INTERVAL_MS=12000\nPORT=18667\n\n# Docker\ndocker compose up -d --build`}</pre></div>
     <div className="panel docs"><h2>可选：GitHub Webhook</h2><p className="muted">只有 Nowen Forge 有 GitHub 可访问的 HTTPS 地址时才需要配置。没有公网地址可以跳过。</p><pre>{`Payload URL\n${webhookUrl}\n\nContent type\napplication/json\n\nSecret\n与 GITHUB_WEBHOOK_SECRET 完全一致\n\n推荐事件\nWorkflow runs / Workflow jobs / Releases / Pushes`}</pre></div>
   </section>;
 }
