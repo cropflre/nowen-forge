@@ -45,6 +45,18 @@ db.exec(`
     inputs_json TEXT NOT NULL DEFAULT '{}',
     requested_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
+
+  CREATE TABLE IF NOT EXISTS webhook_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    delivery_id TEXT NOT NULL UNIQUE,
+    event_name TEXT NOT NULL,
+    action TEXT,
+    repository TEXT,
+    project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+    received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_webhook_events_received_at ON webhook_events(received_at DESC);
 `);
 
 const seeds = [
@@ -90,7 +102,20 @@ export function getProject(id: number): Project | undefined {
   return row ? mapProject(row) : undefined;
 }
 
+export function getProjectByRepository(owner: string, repo: string): Project | undefined {
+  const row = db.prepare('SELECT * FROM projects WHERE lower(owner) = lower(?) AND lower(repo) = lower(?) AND enabled = 1').get(owner, repo);
+  return row ? mapProject(row) : undefined;
+}
+
 export function recordDispatch(projectId: number, workflowId: string, workflowName: string, ref: string, inputs: Record<string, string>) {
   db.prepare(`INSERT INTO dispatches (project_id, workflow_id, workflow_name, ref, inputs_json) VALUES (?, ?, ?, ?, ?)`)
     .run(projectId, workflowId, workflowName, ref, JSON.stringify(inputs));
+}
+
+export function recordWebhookEvent(deliveryId: string, eventName: string, action: string | null, repository: string | null, projectId: number | null) {
+  const result = db.prepare(`
+    INSERT OR IGNORE INTO webhook_events (delivery_id, event_name, action, repository, project_id)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(deliveryId, eventName, action, repository, projectId);
+  return result.changes > 0;
 }
