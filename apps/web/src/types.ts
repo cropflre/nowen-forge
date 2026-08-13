@@ -105,6 +105,56 @@ export type ReleaseCenter = {
   };
 };
 
+export type ManifestArtifact = {
+  githubArtifactId: number;
+  name: string;
+  sizeInBytes: number;
+  digest: string | null;
+  createdAt: string | null;
+  expiresAt: string | null;
+};
+
+export type ManifestChannel = {
+  kind: string;
+  label: string;
+  status: string;
+  summary: string;
+  version?: string | null;
+  url?: string | null;
+  matchesVersion: boolean | null;
+};
+
+export type ReleaseManifest = {
+  id: number;
+  project: Project;
+  version: string;
+  versionSource: 'manual' | 'tag' | 'build';
+  runId: number;
+  runNumber: number;
+  workflowId: string;
+  workflowName: string;
+  ref: string | null;
+  commitSha: string;
+  runConclusion: string | null;
+  runUrl: string;
+  artifactCount: number;
+  totalSizeBytes: number;
+  channels: ManifestChannel[];
+  artifacts: ManifestArtifact[];
+  createdAt: string;
+};
+
+export type ManifestCenter = {
+  manifests: ReleaseManifest[];
+  stats: {
+    manifestCount: number;
+    artifactCount: number;
+    digestedArtifactCount: number;
+    totalSizeBytes: number;
+    failedRunCount: number;
+  };
+};
+
 export type Dashboard = {
   githubConfigured: boolean;
   projects: Array<Project & { latestRun: Run | null; error: string | null }>;

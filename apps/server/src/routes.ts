@@ -1,13 +1,19 @@
 import type { FastifyInstance } from 'fastify';
+import { Readable } from 'node:stream';
 import { z } from 'zod';
-import { getProject, listProjects, recordDispatch } from './db.js';
-import { cancelRun, dispatchWorkflow, getRepo, getRunDetails, getWorkflowSchema, githubConfigured, listRefs, listRuns, listWorkflows, rerunFailed } from './github.js';
+import { getProject, getReleaseManifest, listProjects, recordDispatch } from './db.js';
+import { cancelRun, dispatchWorkflow, downloadArtifactArchive, getRepo, getRunDetails, getWorkflowSchema, githubConfigured, listRefs, listRuns, listWorkflows, rerunFailed } from './github.js';
+import { buildManifestCenter, createManifestFromRun } from './manifests.js';
 import { buildReleaseCenter } from './releases.js';
 import { getPollIntervalMs, publishRealtime, webhookConfigured } from './realtime.js';
 
 const dispatchSchema = z.object({
   ref: z.string().min(1),
   inputs: z.record(z.string()).default({})
+});
+
+const manifestSchema = z.object({
+  version: z.string().trim().min(1).max(100).optional()
 });
 
 function requireProject(id: string) {
@@ -20,12 +26,13 @@ export async function registerApi(app: FastifyInstance) {
   app.get('/api/health', async () => ({
     ok: true,
     githubConfigured,
-    version: '0.3.0',
+    version: '0.4.0',
     realtime: {
       sse: true,
       webhookConfigured,
       pollIntervalMs: getPollIntervalMs()
-    }
+    },
+    manifests: { immutable: true, githubArtifactDigest: true }
   }));
 
   app.get('/api/projects', async () => ({ projects: listProjects() }));
@@ -61,6 +68,49 @@ export async function registerApi(app: FastifyInstance) {
   app.get('/api/projects/:id/runs/:runId', async (request) => {
     const { id, runId } = request.params as { id: string; runId: string };
     return getRunDetails(requireProject(id), Number(runId));
+  });
+
+  app.post('/api/projects/:id/runs/:runId/manifest', async (request, reply) => {
+    const { id, runId } = request.params as { id: string; runId: string };
+    const project = requireProject(id);
+    const body = manifestSchema.parse(request.body ?? {});
+    const result = await createManifestFromRun(project, Number(runId), body.version);
+    publishRealtime({
+      type: 'release',
+      projectId: project.id,
+      projectSlug: project.slug,
+      repository: `${project.owner}/${project.repo}`,
+      source: 'forge',
+      action: result.existed ? 'manifest-existing' : 'manifest-created'
+    });
+    return reply.code(result.existed ? 200 : 201).send(result);
+  });
+
+  app.get('/api/projects/:id/artifacts/:artifactId/download', async (request, reply) => {
+    const { id, artifactId } = request.params as { id: string; artifactId: string };
+    const project = requireProject(id);
+    const { artifact, response } = await downloadArtifactArchive(project, Number(artifactId));
+    const safeName = artifact.name.replace(/[^0-9A-Za-z._-]+/g, '_') || `artifact-${artifact.id}`;
+    reply.header('Content-Type', response.headers.get('content-type') || 'application/zip');
+    reply.header('Content-Disposition', `attachment; filename="${safeName}.zip"`);
+    reply.header('Cache-Control', 'private, no-store');
+    const length = response.headers.get('content-length');
+    if (length) reply.header('Content-Length', length);
+    return reply.send(Readable.fromWeb(response.body as any));
+  });
+
+  app.get('/api/manifests', async (request) => {
+    const query = request.query as { projectId?: string };
+    const parsedProjectId = query.projectId ? Number(query.projectId) : undefined;
+    const projectId = typeof parsedProjectId === 'number' && Number.isFinite(parsedProjectId) ? parsedProjectId : undefined;
+    return buildManifestCenter(projectId);
+  });
+
+  app.get('/api/manifests/:manifestId', async (request, reply) => {
+    const { manifestId } = request.params as { manifestId: string };
+    const manifest = getReleaseManifest(Number(manifestId));
+    if (!manifest) return reply.code(404).send({ message: 'Manifest not found' });
+    return manifest;
   });
 
   app.post('/api/projects/:id/workflows/:workflowId/dispatch', async (request, reply) => {

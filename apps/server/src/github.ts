@@ -155,6 +155,19 @@ export async function dispatchWorkflow(project: Project, workflowId: string, ref
   });
 }
 
+function mapArtifact(artifact: any) {
+  return {
+    id: Number(artifact.id),
+    name: String(artifact.name),
+    sizeInBytes: Number(artifact.size_in_bytes || 0),
+    digest: typeof artifact.digest === 'string' ? artifact.digest : null,
+    expired: Boolean(artifact.expired),
+    createdAt: artifact.created_at || null,
+    expiresAt: artifact.expires_at || null,
+    archiveDownloadUrl: artifact.archive_download_url
+  };
+}
+
 export async function getRunDetails(project: Project, runId: number) {
   const [{ data: run }, { data: jobs }, { data: artifacts }] = await Promise.all([
     octokit.rest.actions.getWorkflowRun({ owner: project.owner, repo: project.repo, run_id: runId }),
@@ -174,16 +187,32 @@ export async function getRunDetails(project: Project, runId: number) {
       htmlUrl: job.html_url,
       steps: job.steps?.map((step) => ({ name: step.name, status: step.status, conclusion: step.conclusion, number: step.number })) || []
     })),
-    artifacts: artifacts.artifacts.map((artifact) => ({
-      id: artifact.id,
-      name: artifact.name,
-      sizeInBytes: artifact.size_in_bytes,
-      expired: artifact.expired,
-      createdAt: artifact.created_at,
-      expiresAt: artifact.expires_at,
-      archiveDownloadUrl: artifact.archive_download_url
-    }))
+    artifacts: artifacts.artifacts.map(mapArtifact)
   };
+}
+
+export async function getArtifact(project: Project, artifactId: number) {
+  const { data } = await octokit.rest.actions.getArtifact({ owner: project.owner, repo: project.repo, artifact_id: artifactId });
+  return mapArtifact(data);
+}
+
+export async function downloadArtifactArchive(project: Project, artifactId: number) {
+  if (!token) throw Object.assign(new Error('GITHUB_TOKEN is required to download Actions artifacts'), { statusCode: 409 });
+  const artifact = await getArtifact(project, artifactId);
+  if (artifact.expired) throw Object.assign(new Error('Artifact has expired on GitHub'), { statusCode: 410 });
+  const response = await fetch(`https://api.github.com/repos/${encodeURIComponent(project.owner)}/${encodeURIComponent(project.repo)}/actions/artifacts/${artifactId}/zip`, {
+    redirect: 'follow',
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${token}`,
+      'X-GitHub-Api-Version': '2022-11-28',
+      'User-Agent': 'Nowen-Forge/0.4'
+    }
+  });
+  if (!response.ok || !response.body) {
+    throw Object.assign(new Error(`GitHub artifact download failed: HTTP ${response.status}`), { statusCode: response.status || 502 });
+  }
+  return { artifact, response };
 }
 
 export async function rerunFailed(project: Project, runId: number) {

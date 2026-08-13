@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Activity, Boxes, GitBranch, Hammer, Rocket, Settings } from 'lucide-react';
+import { Activity, Archive, Boxes, GitBranch, Hammer, Rocket, Settings } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 
 const nav = [
@@ -7,6 +7,7 @@ const nav = [
   { to: '/projects', label: '项目', icon: Boxes },
   { to: '/runs', label: '构建记录', icon: GitBranch },
   { to: '/releases', label: '发布中心', icon: Rocket },
+  { to: '/artifacts', label: '制品中心', icon: Archive },
   { to: '/settings', label: '设置', icon: Settings }
 ];
 
