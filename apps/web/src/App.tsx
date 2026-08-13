@@ -3,6 +3,7 @@ import Layout from './components/Layout';
 import DashboardPage from './pages/DashboardPage';
 import ProjectsPage from './pages/ProjectsPage';
 import ProjectPage from './pages/ProjectPage';
+import PublishPage from './pages/PublishPage';
 import ReleaseCenterPage from './pages/ReleaseCenterPage';
 import ArtifactsPage from './pages/ArtifactsPage';
 import SettingsPage from './pages/SettingsPage';
@@ -14,6 +15,7 @@ export default function App() {
     <Route path="/projects" element={<ProjectsPage />} />
     <Route path="/projects/:id" element={<ProjectPage />} />
     <Route path="/runs" element={<DashboardPage runsOnly />} />
+    <Route path="/publish" element={<PublishPage />} />
     <Route path="/releases" element={<ReleaseCenterPage />} />
     <Route path="/artifacts" element={<ArtifactsPage />} />
     <Route path="/settings" element={<SettingsPage />} />

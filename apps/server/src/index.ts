@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { registerApi } from './routes.js';
 import { registerRealtime, startRunWatcher } from './realtime.js';
+import { startReleasePlanWatcher } from './releasePlans.js';
 
 const app = Fastify({ logger: true });
 await app.register(cors, { origin: true });
@@ -29,10 +30,12 @@ app.setErrorHandler((error, _request, reply) => {
 const port = Number(process.env.PORT || 3001);
 const host = process.env.HOST || '0.0.0.0';
 await app.listen({ port, host });
-const stopWatcher = startRunWatcher(app.log);
+const stopRunWatcher = startRunWatcher(app.log);
+const stopReleaseWatcher = startReleasePlanWatcher(app.log);
 
 const shutdown = async () => {
-  stopWatcher();
+  stopRunWatcher();
+  stopReleaseWatcher();
   await app.close();
   process.exit(0);
 };
