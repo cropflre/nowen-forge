@@ -7,6 +7,7 @@ import { registerApi } from './routes.js';
 import { registerRealtime, startRunWatcher } from './realtime.js';
 import { startReleasePlanWatcher } from './releasePlans.js';
 import { startReleaseRecoveryWatcher } from './releaseRecovery.js';
+import { startManifestEvidenceWatcher } from './manifestEvidence.js';
 
 const app = Fastify({ logger: true });
 await app.register(cors, { origin: true });
@@ -34,11 +35,13 @@ await app.listen({ port, host });
 const stopRunWatcher = startRunWatcher(app.log);
 const stopReleaseWatcher = startReleasePlanWatcher(app.log);
 const stopRecoveryWatcher = startReleaseRecoveryWatcher(app.log);
+const stopEvidenceWatcher = startManifestEvidenceWatcher(app.log);
 
 const shutdown = async () => {
   stopRunWatcher();
   stopReleaseWatcher();
   stopRecoveryWatcher();
+  stopEvidenceWatcher();
   await app.close();
   process.exit(0);
 };
