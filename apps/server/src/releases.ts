@@ -62,11 +62,12 @@ export async function buildReleaseVersionChannels(project: Project, version: str
     .then((releases) => ({ releases, error: null as string | null }))
     .catch((error) => ({ releases: [], error: error instanceof Error ? error.message : 'GitHub Release 状态读取失败' }));
   const exactRelease = releasesResult.releases.find((release) => normalizeVersion(release.tagName) === normalized) || null;
+  const versionProbe = exactRelease || { tagName: version, assets: [] };
 
   const [dockerChannel, giteeChannel, testflightChannel] = await Promise.all([
     config.dockerImage ? buildDockerHubChannel(config.dockerImage, version) : Promise.resolve(null),
     config.gitee ? buildGiteePlatformChannel(exactRelease) : Promise.resolve(null),
-    config.testflight ? buildTestFlightPlatformChannel(exactRelease) : Promise.resolve(null)
+    config.testflight ? buildTestFlightPlatformChannel(versionProbe) : Promise.resolve(null)
   ]);
 
   const githubChannel: Channel = releasesResult.error
