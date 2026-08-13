@@ -147,7 +147,9 @@ Release Recovery watcher ───┴─> SQLite 持久状态
 - `/api/events` SSE
 - `/api/webhooks/github` HMAC-SHA256
 - `X-GitHub-Delivery` SQLite 幂等去重
-- NAS / 局域网无需公网 Webhook，轮询兜底仍可自动刷新
+- NAS / 局域网无需公网 Webhook，登录 GitHub 后轮询兜底仍可自动刷新
+- 未认证时后台 watcher 不主动请求 GitHub，避免消耗匿名 API 额度
+- 仓库信息、分支、Workflow、Release、Runs 在服务端按不同 TTL 缓存并合并重复请求
 
 ## 架构
 
@@ -163,7 +165,12 @@ Nowen Forge (React + Fastify)
   │    ├─ release_plans / release_plan_runs
   │    └─ release_recovery_attempts
   │
-  ├─ GitHub REST API
+  ├─ GitHub Auth
+  │    ├─ Browser OAuth（推荐）
+  │    ├─ Device Flow（localhost / NAS）
+  │    └─ GITHUB_TOKEN（无人值守兜底）
+  │
+  ├─ GitHub REST API + service cache
   │    ├─ Git refs / tags
   │    ├─ Workflows / Runs / Jobs / rerun failed jobs
   │    ├─ Actions Artifacts + digest
@@ -196,8 +203,79 @@ npm run dev
 - API: `http://localhost:18667`
 - Web 开发服务器会把 `/api/*` 代理到 `http://127.0.0.1:18667`
 - Vite 使用 `strictPort`，18666 被占用时直接报错，不会自动漂移到其他端口
+- 根目录 `.env` / `.env.local` 会由服务端自动加载
 
-`.env` 不是启动开发环境的硬性要求；需要 GitHub/Gitee/TestFlight 能力时再从 `.env.example` 复制并填写对应凭证即可。
+不配置 GitHub 凭证也能启动和查看本地持久数据，但不会再让后台 watcher 持续消耗 GitHub 匿名额度。需要仓库实时数据或发布能力时，推荐直接登录 GitHub。
+
+## GitHub 登录（推荐）
+
+Nowen Forge 的优先级为：**GitHub OAuth 登录 > `GITHUB_TOKEN` > 匿名只读**。
+
+### 方案 A：浏览器一键登录
+
+在 GitHub 创建一个 OAuth App，并配置：
+
+```text
+Application name
+Nowen Forge
+
+Homepage URL（本地开发）
+http://localhost:18666
+
+Authorization callback URL（本地开发）
+http://localhost:18666/api/auth/github/callback
+```
+
+然后把 OAuth App 的 Client ID / Client Secret 写到仓库根目录 `.env`：
+
+```bash
+GITHUB_OAUTH_CLIENT_ID=Ov23li_xxx
+GITHUB_OAUTH_CLIENT_SECRET=xxx
+```
+
+重启 `npm run dev` 后，右上角会出现 **登录 GitHub**。点击后跳转 GitHub 授权，完成后自动回到 Nowen Forge。
+
+如果通过 NAS / HTTPS 反向代理访问，建议再显式配置：
+
+```bash
+GITHUB_OAUTH_CALLBACK_URL=https://forge.example.com/api/auth/github/callback
+```
+
+并把 OAuth App 的 callback URL 设置成完全相同的地址。
+
+### 方案 B：Device Flow
+
+如果只配置：
+
+```bash
+GITHUB_OAUTH_CLIENT_ID=Ov23li_xxx
+```
+
+Forge 会改用 Device Flow。需要在 GitHub OAuth App 设置中启用 **Device Flow**。点击“登录 GitHub”后会打开 GitHub 验证页面，输入 Forge 展示的设备码即可完成授权，无需把 Client Secret 部署到 NAS。
+
+默认 OAuth scopes：
+
+```text
+repo workflow read:user
+```
+
+OAuth Access Token 只保存在服务端 `DATA_DIR/github-auth.json`，不会下发到前端；Docker 部署时 `./data` volume 会保留登录状态。
+
+### 方案 C：GITHUB_TOKEN 兜底
+
+无人值守服务器仍可使用 Fine-grained PAT。推荐只授权 Nowen 相关仓库：
+
+```text
+Repository permissions
+- Contents: Read and write
+- Actions: Read and write
+```
+
+```bash
+GITHUB_TOKEN=github_pat_xxx
+```
+
+当已经通过 GitHub OAuth 登录时，OAuth Token 优先于 `GITHUB_TOKEN`。
 
 ## Docker
 
@@ -206,29 +284,18 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-访问 `http://localhost:18667`，SQLite 数据保存在 `./data/nowen-forge.db`。
+访问 `http://localhost:18667`，SQLite 数据保存在 `./data/nowen-forge.db`，GitHub OAuth 登录状态保存在 `./data/github-auth.json`。
 
-## GitHub Token 权限
-
-推荐 Fine-grained PAT 只授权 Nowen 相关仓库：
-
-```text
-Repository permissions
-- Contents: Read and write
-- Actions: Read and write
-```
-
-`Actions: write` 同时用于 workflow_dispatch、cancel、rerun 和 V0.8 的 failed-jobs recovery。
+## 其他基础配置
 
 ```bash
-GITHUB_TOKEN=github_pat_xxx
 GITHUB_WEBHOOK_SECRET=your-long-random-secret   # 可选
 RUN_POLL_INTERVAL_MS=12000                      # 可选
 PORT=18667
 HOST=0.0.0.0
 ```
 
-Token / Gitee Token / App Store Connect Private Key 只存在服务端环境变量，不下发浏览器，也不写入 SQLite。
+GitHub OAuth / Token、Gitee Token、App Store Connect Private Key 均只由服务端使用，不会写入前端 Bundle。
 
 ## 当前页面
 

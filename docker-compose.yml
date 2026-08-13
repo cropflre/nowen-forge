@@ -6,6 +6,10 @@ services:
     ports:
       - "18667:18667"
     environment:
+      GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:-}
+      GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET:-}
+      GITHUB_OAUTH_CALLBACK_URL: ${GITHUB_OAUTH_CALLBACK_URL:-}
+      GITHUB_OAUTH_SCOPES: "${GITHUB_OAUTH_SCOPES:-repo workflow read:user}"
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       DATA_DIR: /app/data
       PORT: 18667

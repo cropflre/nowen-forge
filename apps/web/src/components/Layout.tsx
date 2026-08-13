@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Activity, Archive, Boxes, GitBranch, Hammer, Moon, Rocket, Send, Settings, Sun } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { useTheme } from '../theme';
+import GitHubAuthControl from './GitHubAuthControl';
 
 const nav = [
   { to: '/', label: '仪表盘', icon: Activity },
@@ -38,7 +39,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             {isLight ? <Sun size={16} /> : <Moon size={16} />}
             <span className="theme-toggle-label">{isLight ? '日间模式' : '夜间模式'}</span>
           </button>
-          <a className="ghost-button" href="https://github.com/cropflre/nowen-forge" target="_blank" rel="noreferrer">GitHub</a>
+          <GitHubAuthControl compact />
         </div>
       </header>
       <div className="content">{children}</div>

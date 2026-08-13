@@ -1,0 +1,100 @@
+.github-auth-compact {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.github-auth-compact:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.github-auth-compact.connected {
+  cursor: default;
+}
+
+.github-auth-compact img,
+.github-auth-status img {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.github-auth-control {
+  display: grid;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.github-auth-status,
+.github-auth-actions,
+.github-device-wait {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.github-auth-status > div {
+  display: grid;
+  gap: 3px;
+}
+
+.github-auth-status small {
+  color: var(--muted, #8f98a8);
+}
+
+.github-auth-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.github-auth-actions {
+  flex-wrap: wrap;
+}
+
+.compact-button {
+  min-height: 34px;
+  padding: 0 12px;
+}
+
+.github-auth-error {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 92, 92, 0.1);
+  color: #ff8c8c;
+  font-size: 13px;
+}
+
+.github-device-modal {
+  max-width: 520px;
+}
+
+.github-device-code {
+  width: 100%;
+  margin: 18px 0;
+  padding: 20px;
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  font: 700 30px/1.2 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  letter-spacing: 4px;
+  text-align: center;
+  cursor: copy;
+}
+
+.github-device-wait {
+  color: var(--muted, #8f98a8);
+  font-size: 13px;
+}
