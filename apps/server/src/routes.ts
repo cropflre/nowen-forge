@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { getProject, listProjects, recordDispatch } from './db.js';
-import { cancelRun, dispatchWorkflow, getRepo, getRunDetails, githubConfigured, listBranches, listRuns, listWorkflows, rerunFailed } from './github.js';
+import { cancelRun, dispatchWorkflow, getRepo, getRunDetails, getWorkflowSchema, githubConfigured, listRefs, listRuns, listWorkflows, rerunFailed } from './github.js';
+import { buildReleaseCenter } from './releases.js';
 
 const dispatchSchema = z.object({
   ref: z.string().min(1),
@@ -15,7 +16,7 @@ function requireProject(id: string) {
 }
 
 export async function registerApi(app: FastifyInstance) {
-  app.get('/api/health', async () => ({ ok: true, githubConfigured, version: '0.1.0' }));
+  app.get('/api/health', async () => ({ ok: true, githubConfigured, version: '0.2.0' }));
 
   app.get('/api/projects', async () => ({ projects: listProjects() }));
 
@@ -31,9 +32,14 @@ export async function registerApi(app: FastifyInstance) {
     return { workflows: await listWorkflows(requireProject(id)) };
   });
 
+  app.get('/api/projects/:id/workflows/:workflowId/schema', async (request) => {
+    const { id, workflowId } = request.params as { id: string; workflowId: string };
+    return getWorkflowSchema(requireProject(id), workflowId);
+  });
+
   app.get('/api/projects/:id/branches', async (request) => {
     const { id } = request.params as { id: string };
-    return { branches: await listBranches(requireProject(id)) };
+    return listRefs(requireProject(id));
   });
 
   app.get('/api/projects/:id/runs', async (request) => {
@@ -52,10 +58,17 @@ export async function registerApi(app: FastifyInstance) {
     const { id, workflowId } = request.params as { id: string; workflowId: string };
     const project = requireProject(id);
     const body = dispatchSchema.parse(request.body ?? {});
-    const workflows = await listWorkflows(project);
-    const workflow = workflows.find((item) => String(item.id) === workflowId);
+    const schema = await getWorkflowSchema(project, workflowId);
+    if (!schema.dispatchable) return reply.code(422).send({ message: 'This workflow does not support workflow_dispatch' });
+
+    const declared = new Set(schema.inputs.map((input) => input.name));
+    const unknown = Object.keys(body.inputs).filter((name) => !declared.has(name));
+    if (unknown.length) return reply.code(400).send({ message: `Unknown workflow inputs: ${unknown.join(', ')}` });
+    const missing = schema.inputs.filter((input) => input.required && !body.inputs[input.name]?.trim()).map((input) => input.name);
+    if (missing.length) return reply.code(400).send({ message: `Missing required workflow inputs: ${missing.join(', ')}` });
+
     await dispatchWorkflow(project, workflowId, body.ref, body.inputs);
-    recordDispatch(project.id, workflowId, workflow?.name || workflowId, body.ref, body.inputs);
+    recordDispatch(project.id, workflowId, schema.name, body.ref, body.inputs);
     return reply.code(202).send({ ok: true });
   });
 
@@ -72,6 +85,8 @@ export async function registerApi(app: FastifyInstance) {
     await cancelRun(requireProject(id), Number(runId));
     return reply.code(202).send({ ok: true });
   });
+
+  app.get('/api/releases', async () => buildReleaseCenter(listProjects()));
 
   app.get('/api/dashboard', async () => {
     const projects = listProjects();
