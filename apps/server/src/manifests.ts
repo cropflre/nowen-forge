@@ -1,6 +1,7 @@
 import type { Project, ManifestChannelRecord } from './db.js';
 import { findReleaseManifest, insertReleaseManifest, listReleaseManifests } from './db.js';
 import { getRunDetails } from './github.js';
+import { getManifestReleaseEvidence, syncManifestReleaseEvidence, withReleaseEvidence } from './releaseEvidence.js';
 import { buildReleaseCenter } from './releases.js';
 
 function normalizeVersion(value: string) {
@@ -84,7 +85,14 @@ export async function createManifestFromRun(project: Project, runId: number, req
   }
 
   const existing = findReleaseManifest(project.id, runId, version);
-  if (existing) return { manifest: existing, existed: true };
+  if (existing) {
+    try {
+      const synced = await syncManifestReleaseEvidence(existing.id);
+      return { manifest: synced.manifest, existed: true };
+    } catch {
+      return { manifest: withReleaseEvidence(existing), existed: true };
+    }
+  }
 
   const releaseCenter = await buildReleaseCenter([project]);
   const releaseProject = releaseCenter.projects[0];
@@ -113,20 +121,33 @@ export async function createManifestFromRun(project: Project, runId: number, req
     channels,
     artifacts
   });
-  return { manifest, existed: false };
+
+  try {
+    const synced = await syncManifestReleaseEvidence(manifest.id);
+    return { manifest: synced.manifest, existed: false };
+  } catch {
+    return { manifest: withReleaseEvidence(manifest), existed: false };
+  }
 }
 
 export function buildManifestCenter(projectId?: number) {
-  const manifests = listReleaseManifests(projectId);
+  const manifests = listReleaseManifests(projectId).map(withReleaseEvidence);
   const artifacts = manifests.flatMap((manifest) => manifest.artifacts);
+  const releaseAssets = manifests.flatMap((manifest) => manifest.releaseEvidence?.assets || []);
   const digested = artifacts.filter((artifact) => Boolean(artifact.digest)).length;
+  const digestedReleaseAssets = releaseAssets.filter((asset) => Boolean(asset.digest)).length;
   return {
     manifests,
     stats: {
       manifestCount: manifests.length,
       artifactCount: artifacts.length,
       digestedArtifactCount: digested,
+      releaseAssetCount: releaseAssets.length,
+      digestedReleaseAssetCount: digestedReleaseAssets,
+      releaseBoundManifestCount: manifests.filter((manifest) => Boolean(getManifestReleaseEvidence(manifest.id))).length,
+      exactCommitMatchCount: manifests.filter((manifest) => manifest.releaseEvidence?.commitMatches === true).length,
       totalSizeBytes: manifests.reduce((sum, manifest) => sum + manifest.totalSizeBytes, 0),
+      totalReleaseAssetSizeBytes: releaseAssets.reduce((sum, asset) => sum + asset.sizeInBytes, 0),
       failedRunCount: manifests.filter((manifest) => manifest.runConclusion && manifest.runConclusion !== 'success').length
     }
   };
