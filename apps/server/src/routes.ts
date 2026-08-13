@@ -4,24 +4,15 @@ import { z } from 'zod';
 import { getProject, getReleaseManifest, listProjects, recordDispatch } from './db.js';
 import { cancelRun, dispatchWorkflow, downloadArtifactArchive, getRepo, getRunDetails, getWorkflowSchema, githubConfigured, listRefs, listRuns, listWorkflows, rerunFailed } from './github.js';
 import { buildManifestCenter, createManifestFromRun } from './manifests.js';
+import { appStorePlatformConfigured, giteePlatformConfigured } from './platforms.js';
 import { syncManifestReleaseEvidence, withReleaseEvidence } from './releaseEvidence.js';
 import { buildReleaseCenter } from './releases.js';
 import { buildReleasePlanCenter, getReleasePlan, preflightRelease, startReleasePlan } from './releasePlans.js';
 import { getPollIntervalMs, publishRealtime, webhookConfigured } from './realtime.js';
 
-const dispatchSchema = z.object({
-  ref: z.string().min(1),
-  inputs: z.record(z.string()).default({})
-});
-
-const manifestSchema = z.object({
-  version: z.string().trim().min(1).max(100).optional()
-});
-
-const releasePlanSchema = z.object({
-  version: z.string().trim().min(1).max(100),
-  sourceRef: z.string().trim().min(1).max(200)
-});
+const dispatchSchema = z.object({ ref: z.string().min(1), inputs: z.record(z.string()).default({}) });
+const manifestSchema = z.object({ version: z.string().trim().min(1).max(100).optional() });
+const releasePlanSchema = z.object({ version: z.string().trim().min(1).max(100), sourceRef: z.string().trim().min(1).max(200) });
 
 const obsoleteNowenDockerWarning = 'NOWEN 当前 Docker Workflow 只推 latest 与 commit SHA，不推版本号 Tag；发布计划成功后，Manifest 的 Docker 渠道仍可能显示版本不匹配。';
 
@@ -47,14 +38,15 @@ export async function registerApi(app: FastifyInstance) {
   app.get('/api/health', async () => ({
     ok: true,
     githubConfigured,
-    version: '0.6.0',
-    realtime: {
-      sse: true,
-      webhookConfigured,
-      pollIntervalMs: getPollIntervalMs()
-    },
+    version: '0.7.0',
+    realtime: { sse: true, webhookConfigured, pollIntervalMs: getPollIntervalMs() },
     manifests: { immutable: true, githubArtifactDigest: true, githubReleaseAssetDigest: true, appendOnlyReleaseEvidence: true },
-    releaseOrchestrator: { enabled: true, persistent: true, tagPreflight: true }
+    releaseOrchestrator: { enabled: true, persistent: true, tagPreflight: true },
+    platformVerification: {
+      giteeConfigured: giteePlatformConfigured,
+      appStoreConnectConfigured: appStorePlatformConfigured,
+      workflowFallbackAsSuccess: false
+    }
   }));
 
   app.get('/api/projects', async () => ({ projects: listProjects() }));
@@ -98,11 +90,8 @@ export async function registerApi(app: FastifyInstance) {
     const body = manifestSchema.parse(request.body ?? {});
     const result = await createManifestFromRun(project, Number(runId), body.version);
     publishRealtime({
-      type: 'release',
-      projectId: project.id,
-      projectSlug: project.slug,
-      repository: `${project.owner}/${project.repo}`,
-      source: 'forge',
+      type: 'release', projectId: project.id, projectSlug: project.slug,
+      repository: `${project.owner}/${project.repo}`, source: 'forge',
       action: result.existed ? 'manifest-existing' : 'manifest-created'
     });
     return reply.code(result.existed ? 200 : 201).send(result);
@@ -141,11 +130,8 @@ export async function registerApi(app: FastifyInstance) {
     const result = await syncManifestReleaseEvidence(Number(manifestId));
     const manifest = result.manifest;
     publishRealtime({
-      type: 'release',
-      projectId: manifest.project.id,
-      projectSlug: manifest.project.slug,
-      repository: `${manifest.project.owner}/${manifest.project.repo}`,
-      source: 'forge',
+      type: 'release', projectId: manifest.project.id, projectSlug: manifest.project.slug,
+      repository: `${manifest.project.owner}/${manifest.project.repo}`, source: 'forge',
       action: result.found ? 'release-assets-synced' : 'release-assets-not-found'
     });
     return reply.send(result);
@@ -164,12 +150,8 @@ export async function registerApi(app: FastifyInstance) {
     const body = releasePlanSchema.parse(request.body ?? {});
     const plan = normalizeReleasePlanPresentation(await startReleasePlan(project, body.version, body.sourceRef));
     publishRealtime({
-      type: 'release',
-      projectId: project.id,
-      projectSlug: project.slug,
-      repository: `${project.owner}/${project.repo}`,
-      source: 'forge',
-      action: `release-plan:${plan.id}:started`
+      type: 'release', projectId: project.id, projectSlug: project.slug,
+      repository: `${project.owner}/${project.repo}`, source: 'forge', action: `release-plan:${plan.id}:started`
     });
     return reply.code(201).send({ plan });
   });
@@ -200,12 +182,8 @@ export async function registerApi(app: FastifyInstance) {
     await dispatchWorkflow(project, workflowId, body.ref, body.inputs);
     recordDispatch(project.id, workflowId, schema.name, body.ref, body.inputs);
     publishRealtime({
-      type: 'dispatch',
-      projectId: project.id,
-      projectSlug: project.slug,
-      repository: `${project.owner}/${project.repo}`,
-      source: 'forge',
-      action: `workflow:${workflowId}`
+      type: 'dispatch', projectId: project.id, projectSlug: project.slug,
+      repository: `${project.owner}/${project.repo}`, source: 'forge', action: `workflow:${workflowId}`
     });
     return reply.code(202).send({ ok: true });
   });
