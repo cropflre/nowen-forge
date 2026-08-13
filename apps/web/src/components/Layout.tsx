@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Activity, Archive, Boxes, GitBranch, Hammer, Rocket, Send, Settings } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
+import GitHubAuthControl from './GitHubAuthControl';
 
 const nav = [
   { to: '/', label: '仪表盘', icon: Activity },
@@ -19,6 +20,6 @@ export default function Layout({ children }: { children: ReactNode }) {
       <nav>{nav.map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} end={to === '/'} className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}><Icon size={18} /><span>{label}</span></NavLink>)}</nav>
       <div className="sidebar-foot"><span className="dot online" />GitHub Actions 执行引擎</div>
     </aside>
-    <main className="main"><header className="topbar"><div><span className="eyebrow">NOWEN ECOSYSTEM</span></div><a className="ghost-button" href="https://github.com/cropflre/nowen-forge" target="_blank" rel="noreferrer">GitHub</a></header><div className="content">{children}</div></main>
+    <main className="main"><header className="topbar"><div><span className="eyebrow">NOWEN ECOSYSTEM</span></div><GitHubAuthControl compact /></header><div className="content">{children}</div></main>
   </div>;
 }
