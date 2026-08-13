@@ -28,7 +28,7 @@ app.setErrorHandler((error, _request, reply) => {
   reply.code(statusCode).send({ message: error.message || 'Internal server error' });
 });
 
-const port = Number(process.env.PORT || 3001);
+const port = Number(process.env.PORT || 18667);
 const host = process.env.HOST || '0.0.0.0';
 await app.listen({ port, host });
 const stopRunWatcher = startRunWatcher(app.log);
