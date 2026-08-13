@@ -1,0 +1,330 @@
+/* Daytime theme — loaded after all page styles. Deep selectors are intentional so the
+   existing dark theme remains untouched while every current Forge surface gets a
+   coherent light treatment. */
+html[data-theme='light']{
+  color-scheme:light;
+  --bg:#f3f6fa;
+  --panel:#ffffff;
+  --panel2:#f7f9fc;
+  --line:#d9e2ec;
+  --text:#182235;
+  --muted:#6c7e94;
+  --blue:#2563eb;
+  --blue2:#4f83ff;
+  --green:#15966a;
+  --red:#d94d5c;
+  --amber:#bd7d12;
+  color:#182235;
+  background:#f3f6fa;
+}
+html[data-theme='light'] body{
+  background:radial-gradient(circle at 62% -18%,#dceaff 0,transparent 35%),var(--bg);
+  color:var(--text);
+}
+html[data-theme='light'] ::selection{background:#cfe0ff;color:#13213b}
+
+/* App chrome */
+html[data-theme='light'] .sidebar{
+  background:rgba(255,255,255,.88);
+  border-right-color:#dce4ee;
+  box-shadow:8px 0 28px rgba(34,57,84,.035);
+}
+html[data-theme='light'] .brand,
+html[data-theme='light'] .sidebar-foot,
+html[data-theme='light'] .topbar{border-color:#dce4ee}
+html[data-theme='light'] .brand small{color:#788aa1}
+html[data-theme='light'] .nav-item{color:#64758b}
+html[data-theme='light'] .nav-item:hover{background:#f0f4f9;color:#24344a}
+html[data-theme='light'] .nav-item.active{background:#eaf2ff;color:#2466d8;box-shadow:inset 0 0 0 1px #d5e5ff}
+html[data-theme='light'] .sidebar-foot{color:#75869a}
+html[data-theme='light'] .topbar{
+  background:rgba(248,250,253,.88);
+  box-shadow:0 1px 0 rgba(26,48,75,.02);
+}
+html[data-theme='light'] .eyebrow{color:#59728f}
+
+.topbar-actions{display:flex;align-items:center;gap:8px}
+.theme-toggle{min-width:116px}
+.theme-toggle-label{white-space:nowrap}
+
+html[data-theme='light'] .ghost-button,
+html[data-theme='light'] .button{
+  background:#fff;
+  border-color:#d6e0eb;
+  color:#40536c;
+  box-shadow:0 1px 2px rgba(26,48,75,.03);
+}
+html[data-theme='light'] .ghost-button:hover,
+html[data-theme='light'] .button.secondary:hover{
+  background:#f7faff;
+  border-color:#aebfd3;
+  color:#1f3655;
+}
+html[data-theme='light'] .button.primary{
+  background:#286bd9;
+  border-color:#286bd9;
+  color:#fff;
+  box-shadow:0 6px 18px rgba(37,99,235,.18);
+}
+html[data-theme='light'] .button.primary:hover{background:#1f60c8}
+html[data-theme='light'] .button.danger{background:#fff3f4;border-color:#f2c4ca;color:#b83445}
+
+/* Base surfaces */
+html[data-theme='light'] .stat-card{
+  background:linear-gradient(145deg,#fff,#f8fafc);
+  border-color:#dce4ed;
+  box-shadow:0 8px 26px rgba(40,61,86,.045);
+}
+html[data-theme='light'] .stat-icon{background:#eaf2ff;color:#2d6fdc}
+html[data-theme='light'] .stat-card span{color:#72839a}
+html[data-theme='light'] .project-card{
+  background:linear-gradient(145deg,#fff,#f8fafc);
+  border-color:#dce4ed;
+  box-shadow:0 8px 28px rgba(37,58,83,.04);
+}
+html[data-theme='light'] .project-card:hover{background:#fff;border-color:#b8c9dc;box-shadow:0 12px 34px rgba(37,70,112,.08)}
+html[data-theme='light'] .project-mark{background:#eaf2ff;color:#2b6cd8}
+html[data-theme='light'] .kind-service{background:#e8f7f1;color:#14805b}
+html[data-theme='light'] .kind-docker{background:#fff4dc;color:#9a6914}
+html[data-theme='light'] .project-card .project-top span,
+html[data-theme='light'] .project-card>p,
+html[data-theme='light'] .muted,
+html[data-theme='light'] .branch{color:#6e8096!important}
+html[data-theme='light'] .project-bottom{border-color:#e3e9f0}
+html[data-theme='light'] .chips span,
+html[data-theme='light'] .recommended{background:#eef5ff;border-color:#d4e4fb;color:#3f6fAB}
+html[data-theme='light'] .panel{background:#fff;border-color:#dce4ed;box-shadow:0 8px 26px rgba(37,58,83,.035)}
+
+/* Tables, run rows and badges */
+html[data-theme='light'] th{background:#f7f9fc;border-color:#dde5ee;color:#65788f}
+html[data-theme='light'] td{border-color:#e5ebf1;color:#40536a}
+html[data-theme='light'] tbody tr:hover{background:#f7faff}
+html[data-theme='light'] .run-name{color:#23344a}
+html[data-theme='light'] .project-link,
+html[data-theme='light'] .section-title a{color:#2c6fdc}
+html[data-theme='light'] .icon-link{color:#71849a}
+html[data-theme='light'] .status{border-color:#cfdbe7;background:#f4f7fa;color:#60758d}
+html[data-theme='light'] .status-success{border-color:#b9e0cf;background:#edf9f4;color:#147b59}
+html[data-theme='light'] .status-failure,
+html[data-theme='light'] .status-timed_out{border-color:#f0c3c9;background:#fff2f4;color:#bb3e4d}
+html[data-theme='light'] .status-cancelled,
+html[data-theme='light'] .status-skipped{border-color:#d9d9df;background:#f5f5f7;color:#6e6a72}
+html[data-theme='light'] .status-in_progress,
+html[data-theme='light'] .status-queued,
+html[data-theme='light'] .status-waiting{border-color:#bfd6f6;background:#edf5ff;color:#2869c7}
+html[data-theme='light'] .run-row{border-color:#e4eaf1}
+html[data-theme='light'] .run-row:hover,
+html[data-theme='light'] .run-row.selected{background:#f1f6fc}
+html[data-theme='light'] .run-row span:not(.status){color:#6f8298}
+
+/* Feedback */
+html[data-theme='light'] .alert.warning{background:#fff8e7;border-color:#ead39d;color:#8f681b}
+html[data-theme='light'] .alert.error{background:#fff1f3;border-color:#efc1c8;color:#b43b4a}
+html[data-theme='light'] .loading,
+html[data-theme='light'] .empty{color:#71849b}
+
+/* Workflows, modals, drawers and settings */
+html[data-theme='light'] .workflow-card,
+html[data-theme='light'] .job,
+html[data-theme='light'] .artifact,
+html[data-theme='light'] .setting-card{background:#fff;border-color:#dce4ed}
+html[data-theme='light'] .workflow-card{box-shadow:0 3px 12px rgba(38,57,80,.025)}
+html[data-theme='light'] .modal-backdrop{background:rgba(32,45,61,.34)}
+html[data-theme='light'] .modal{
+  background:#fff;
+  border-color:#ccd8e5;
+  box-shadow:0 28px 80px rgba(32,49,70,.18);
+}
+html[data-theme='light'] .modal label{color:#63778e}
+html[data-theme='light'] .modal input,
+html[data-theme='light'] .modal textarea,
+html[data-theme='light'] .modal select,
+html[data-theme='light'] .publish-form input,
+html[data-theme='light'] .publish-form select{
+  background:#fff;
+  border-color:#cfdbe7;
+  color:#1d2b3e;
+}
+html[data-theme='light'] .modal input:focus,
+html[data-theme='light'] .modal textarea:focus,
+html[data-theme='light'] .modal select:focus,
+html[data-theme='light'] .publish-form input:focus,
+html[data-theme='light'] .publish-form select:focus{border-color:#5f8fdc;box-shadow:0 0 0 3px rgba(72,123,205,.12)}
+html[data-theme='light'] .close{color:#708397}
+html[data-theme='light'] .detail-drawer{
+  background:#fbfcfe;
+  border-color:#d5e0ea;
+  box-shadow:-20px 0 60px rgba(41,58,78,.10);
+}
+html[data-theme='light'] .detail-drawer h3{color:#6d8096}
+html[data-theme='light'] .job span,
+html[data-theme='light'] .artifact span{color:#6b7e95}
+html[data-theme='light'] .setting-card{color:#3f73bb}
+html[data-theme='light'] .setting-card h3{color:#23354a}
+html[data-theme='light'] .setting-card p{color:#697c93}
+html[data-theme='light'] .setting-ok{color:#14805b}
+html[data-theme='light'] .setting-warn{color:#9a701d}
+html[data-theme='light'] .docs pre{background:#f6f8fb;border-color:#dce4ed;color:#476079}
+html[data-theme='light'] code{color:#365f8d}
+html[data-theme='light'] .error-text{color:#bd4350}
+
+/* Realtime */
+html[data-theme='light'] .live-state{border-color:#e2d4a9;background:#fff9e9;color:#947124}
+html[data-theme='light'] .live-state.connected{border-color:#b9e0cf;background:#edf9f4;color:#147b59}
+
+/* Workflow dispatch / Release Center */
+html[data-theme='light'] .ref-summary{color:#6d8095}
+html[data-theme='light'] .ref-summary span{border-color:#d9e3ed;background:#f7f9fc}
+html[data-theme='light'] .schema-loading{color:#6e8299}
+html[data-theme='light'] .workflow-warnings>div{border-color:#ead39d;background:#fff8e7;color:#8f681b}
+html[data-theme='light'] .workflow-inputs{border-color:#e0e7ef}
+html[data-theme='light'] .input-section-head span,
+html[data-theme='light'] .workflow-field small{color:#6b7e94}
+html[data-theme='light'] .release-stats .stat-warning .stat-icon{background:#fff3d8;color:#a36f13}
+html[data-theme='light'] .release-overview{
+  border-color:#cadbf0;
+  background:linear-gradient(120deg,#f0f6ff,#f9fbfe);
+}
+html[data-theme='light'] .release-overview span{color:#627c9a}
+html[data-theme='light'] .release-overview strong{color:#183452}
+html[data-theme='light'] .release-overview small{color:#6c8096}
+html[data-theme='light'] .release-project-card{background:linear-gradient(145deg,#fff,#f8fafc);border-color:#dce4ed}
+html[data-theme='light'] .release-project-head{border-color:#e1e8ef}
+html[data-theme='light'] .release-project-head span{color:#6d8096}
+html[data-theme='light'] .release-version small{color:#71859b}
+html[data-theme='light'] .release-version strong{color:#3c6595}
+html[data-theme='light'] .release-channel{border-color:#e5ebf1}
+html[data-theme='light'] .channel-icon{background:#eef3f8;color:#647d98}
+html[data-theme='light'] .channel-success{background:#eaf8f2;color:#147c59}
+html[data-theme='light'] .channel-running{background:#edf5ff;color:#2869c7}
+html[data-theme='light'] .channel-failed{background:#fff1f3;color:#bd4150}
+html[data-theme='light'] .channel-warning{background:#fff7e3;color:#99701c}
+html[data-theme='light'] .channel-unavailable{background:#f5f1f3;color:#815f68}
+html[data-theme='light'] .channel-copy p{color:#4f647c}
+html[data-theme='light'] .channel-copy small{color:#71849a}
+html[data-theme='light'] .channel-link{color:#71859c}
+html[data-theme='light'] .release-state{border-color:#d2dde8;background:#f4f7fa;color:#61758d}
+html[data-theme='light'] .release-state.success{border-color:#b7dfce;background:#edf9f4;color:#147b59}
+html[data-theme='light'] .release-state.running{border-color:#bfd6f6;background:#edf5ff;color:#2869c7}
+html[data-theme='light'] .release-state.failed{border-color:#efc1c8;background:#fff1f3;color:#bd4150}
+html[data-theme='light'] .release-state.warning{border-color:#ead39d;background:#fff8e7;color:#946c1c}
+html[data-theme='light'] .release-state.unavailable{border-color:#ddd2d6;background:#f7f3f5;color:#7c5d65}
+html[data-theme='light'] .release-state.empty{border-color:#d7e0e9;background:#f3f6f9;color:#687b91}
+html[data-theme='light'] .platform-proof{border-color:#c8dbf1;color:#3971b6;background:#eff6ff}
+html[data-theme='light'] .platform-proof.proof-platform{border-color:#b8e0ce;color:#147b59;background:#edf9f4}
+html[data-theme='light'] .platform-proof.proof-unconfigured{border-color:#ead39d;color:#946c1c;background:#fff8e7}
+html[data-theme='light'] .platform-proof.proof-workflow{border-color:#d6dee7;color:#6a7686;background:#f3f5f8}
+html[data-theme='light'] .release-tags span{color:#526f90;border-color:#d6e1ed;background:#f5f8fc}
+
+/* One-click publish and recovery */
+html[data-theme='light'] .publish-step-title>span{background:#eaf2ff;color:#2868d2}
+html[data-theme='light'] .publish-form label{color:#60748b}
+html[data-theme='light'] .preflight-lock,
+html[data-theme='light'] .preflight-workflow,
+html[data-theme='light'] .plan-run-row{background:#f9fbfd;border-color:#dce4ed}
+html[data-theme='light'] .preflight-ok{background:#eaf8f2;color:#147b59!important}
+html[data-theme='light'] .preflight-bad{background:#fff1f3;color:#bd4150!important}
+html[data-theme='light'] .plan-preparing,
+html[data-theme='light'] .plan-waiting_runs,
+html[data-theme='light'] .plan-running{background:#edf5ff;color:#2869c7}
+html[data-theme='light'] .plan-succeeded{background:#eaf8f2;color:#147b59}
+html[data-theme='light'] .plan-partial{background:#fff7e3;color:#99701c}
+html[data-theme='light'] .plan-failed{background:#fff1f3;color:#bd4150}
+html[data-theme='light'] .plan-run-icon.success{background:#eaf8f2;color:#147b59}
+html[data-theme='light'] .plan-run-icon.failed{background:#fff1f3;color:#bd4150}
+html[data-theme='light'] .plan-run-icon.running{background:#edf5ff;color:#2869c7}
+html[data-theme='light'] .manifest-ready{background:#eaf2ff;color:#2868d2}
+html[data-theme='light'] .recovery-live{background:#edf5ff;color:#2869c7}
+html[data-theme='light'] .recovery-panel{border-color:#d8e2ec;background:#fff}
+html[data-theme='light'] .recovery-panel-head{border-color:#e0e7ef;background:#f7f9fc}
+html[data-theme='light'] .recovery-channel-row{border-color:#e5ebf1}
+html[data-theme='light'] .recovery-channel-icon{background:#eef3f8;color:#647d98}
+html[data-theme='light'] .recovery-channel-icon.channel-success{background:#eaf8f2;color:#147b59}
+html[data-theme='light'] .recovery-channel-icon.channel-running{background:#edf5ff;color:#2869c7}
+html[data-theme='light'] .recovery-channel-icon.channel-failed,
+html[data-theme='light'] .recovery-channel-icon.channel-warning,
+html[data-theme='light'] .recovery-channel-icon.channel-unavailable{background:#fff1f3;color:#bd4150}
+html[data-theme='light'] .recovery-channel-copy p{color:#4d6279}
+html[data-theme='light'] .recovery-channel-copy small{color:#71849a}
+html[data-theme='light'] .recovery-channel-copy em{background:#eaf8f2;color:#147b59}
+html[data-theme='light'] .recovery-channel-copy em.unconfigured{background:#fff7e3;color:#99701c}
+html[data-theme='light'] .recovery-history{border-color:#e0e7ef}
+html[data-theme='light'] .recovery-attempt{border-color:#dfe7ef}
+html[data-theme='light'] .recovery-attempt-state{background:#f0f4f8;color:#62768e}
+html[data-theme='light'] .state-running,
+html[data-theme='light'] .state-requested,
+html[data-theme='light'] .state-waiting_platform{background:#edf5ff;color:#2869c7}
+html[data-theme='light'] .state-success{background:#eaf8f2;color:#147b59}
+html[data-theme='light'] .state-failed{background:#fff1f3;color:#bd4150}
+
+/* Artifact Center / release evidence */
+html[data-theme='light'] .artifact-total{background:linear-gradient(135deg,#fff,#f6f9fc);box-shadow:0 8px 24px rgba(37,58,83,.035)}
+html[data-theme='light'] .artifact-total span,
+html[data-theme='light'] .artifact-total small{color:#6f8197}
+html[data-theme='light'] .artifact-empty{color:#708399}
+html[data-theme='light'] .artifact-empty h2{color:#25364b}
+html[data-theme='light'] .manifest-card{background:linear-gradient(145deg,#fff,#f8fafc);border-color:#dce4ed;box-shadow:0 10px 30px rgba(37,58,83,.05)}
+html[data-theme='light'] .manifest-head{border-color:#e2e9f0}
+html[data-theme='light'] .manifest-title>a{color:#627b98}
+html[data-theme='light'] .manifest-version span{border-color:#cee0f8;background:#edf5ff;color:#3473c7}
+html[data-theme='light'] .manifest-result{border-color:#d2dce7;color:#667a91;background:#f6f8fb}
+html[data-theme='light'] .manifest-result.success{border-color:#b8dfcd;background:#edf9f4;color:#147b59}
+html[data-theme='light'] .manifest-result.warning{border-color:#e8d39f;background:#fff8e7;color:#916919}
+html[data-theme='light'] .manifest-meta>div{border-color:#dfe7ef;background:#f8fafc}
+html[data-theme='light'] .manifest-meta span{color:#718298}
+html[data-theme='light'] .manifest-meta strong,
+html[data-theme='light'] .manifest-meta code{color:#405773}
+html[data-theme='light'] .manifest-meta a{color:#2f6fc2}
+html[data-theme='light'] .manifest-section-head h3{color:#25364a}
+html[data-theme='light'] .manifest-section-head p{color:#718399}
+html[data-theme='light'] .manifest-artifact{border-color:#dce5ee;background:#f9fbfd}
+html[data-theme='light'] .artifact-main{color:#3976c4}
+html[data-theme='light'] .artifact-main strong{color:#30445c}
+html[data-theme='light'] .artifact-main span{color:#71849a}
+html[data-theme='light'] .artifact-digest code{color:#516f91}
+html[data-theme='light'] .artifact-digest span,
+html[data-theme='light'] .artifact-digest button{color:#74879c}
+html[data-theme='light'] .artifact-digest button:hover{color:#2563b8}
+html[data-theme='light'] .manifest-channel{border-color:#dbe4ed;background:#f8fafc}
+html[data-theme='light'] .manifest-channel span{background:#edf1f5;color:#6b7b8e}
+html[data-theme='light'] .manifest-channel p{color:#657a92}
+html[data-theme='light'] .manifest-channel>a{color:#617b99}
+html[data-theme='light'] .manifest-channel.match-true{border-color:#b8dfcd;background:#f4fbf8}
+html[data-theme='light'] .manifest-channel.match-true span{background:#e5f5ee;color:#147b59}
+html[data-theme='light'] .manifest-channel.match-false{border-color:#ead1b9;background:#fffaf5}
+html[data-theme='light'] .manifest-channel.match-false span{background:#fff0e2;color:#9c6628}
+html[data-theme='light'] .release-evidence-empty{border-color:#cfdceb;background:#f8fbff;color:#6081a7}
+html[data-theme='light'] .release-evidence-empty strong{color:#3b516b}
+html[data-theme='light'] .release-evidence-empty span{color:#708399}
+html[data-theme='light'] .release-binding{border-color:#b8dfcd;background:#edf9f4}
+html[data-theme='light'] .release-binding.mismatch{border-color:#efc1c8;background:#fff1f3}
+html[data-theme='light'] .release-binding span{color:#147b59}
+html[data-theme='light'] .release-binding.mismatch span{color:#bd4150}
+html[data-theme='light'] .release-binding code{color:#57708e}
+html[data-theme='light'] .release-binding>a{color:#2f6fc2}
+html[data-theme='light'] .release-asset{border-color:#d9e4ef;background:#f8fbff}
+html[data-theme='light'] .release-asset-main{color:#17835e}
+html[data-theme='light'] .release-asset-main strong{color:#30445c}
+html[data-theme='light'] .release-asset-main span{color:#71849a}
+html[data-theme='light'] .release-evidence-summary{color:#4e806b}
+html[data-theme='light'] .attempt-row{border-color:#d9e3ed;background:#f8fafc}
+html[data-theme='light'] .attempt-row.success{border-color:#b9dfce;background:#f4fbf8}
+html[data-theme='light'] .attempt-row.failed{border-color:#ead0b8;background:#fffaf5}
+html[data-theme='light'] .attempt-summary strong{color:#30445c}
+html[data-theme='light'] .attempt-summary span{color:#54779e}
+html[data-theme='light'] .attempt-summary small{color:#71849a}
+html[data-theme='light'] .attempt-job{border-color:#d7e0e9;background:#fff;color:#657a91}
+html[data-theme='light'] .attempt-job.success{border-color:#b8dfcd;color:#147b59;background:#f4fbf8}
+html[data-theme='light'] .attempt-job.failed{border-color:#ead0b8;color:#9b682b;background:#fffaf5}
+html[data-theme='light'] .docker-evidence{border-color:#cbddea;background:#f7fbfe}
+html[data-theme='light'] .docker-evidence.digest-mutated{border-color:#e5bfa9;background:#fffaf6}
+html[data-theme='light'] .docker-evidence-head>div strong,
+html[data-theme='light'] .docker-platform>div strong{color:#30445c}
+html[data-theme='light'] .docker-evidence-head>div span,
+html[data-theme='light'] .docker-platform>div span{color:#71849a}
+html[data-theme='light'] .docker-platform{border-color:#dce5ed}
+
+@media(max-width:720px){
+  .theme-toggle{min-width:0;padding:8px 10px}
+  .theme-toggle-label{display:none}
+}
