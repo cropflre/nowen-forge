@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { AlertTriangle, CheckCircle2, CircleMinus, ExternalLink, LoaderCircle, Package, RefreshCw, Rocket } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CircleMinus, ExternalLink, LoaderCircle, Package, Radio, RefreshCw, Rocket } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import type { ReleaseCenter, ReleaseChannel } from '../types';
+import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
 import '../release.css';
 
 export default function ReleaseCenterPage() {
@@ -19,12 +20,13 @@ export default function ReleaseCenterPage() {
   }
 
   useEffect(() => { void load(); }, []);
+  const realtimeConnected = useRealtimeRefresh(load);
   const latestPublished = useMemo(() => data?.recentReleases.find((release) => !release.draft)?.tagName || '—', [data]);
 
   if (loading && !data) return <div className="loading"><LoaderCircle className="spin" />正在汇总发布渠道…</div>;
 
   return <section>
-    <div className="page-head"><div><span className="eyebrow">RELEASE CENTER</span><h1>发布中心</h1><p>统一查看 GitHub Release、Docker Hub、Gitee 与 TestFlight 发布链路</p></div><button className="button secondary" onClick={load}><RefreshCw size={16} />刷新状态</button></div>
+    <div className="page-head"><div><span className="eyebrow">RELEASE CENTER</span><h1>发布中心</h1><p>统一查看 GitHub Release、Docker Hub、Gitee 与 TestFlight 发布链路</p></div><div className="page-actions"><span className={realtimeConnected ? 'live-state connected' : 'live-state'}><Radio size={13} />{realtimeConnected ? '实时连接' : '正在重连'}</span><button className="button secondary" onClick={load}><RefreshCw size={16} />刷新状态</button></div></div>
     {error && <div className="alert error">{error}</div>}
     {data && <>
       <div className="stat-grid release-stats">
@@ -34,7 +36,7 @@ export default function ReleaseCenterPage() {
         <Stat icon={<AlertTriangle size={18} />} label="需关注" value={data.stats.attentionCount} tone={data.stats.attentionCount ? 'warning' : undefined} />
       </div>
 
-      <div className="release-overview"><span>最近正式版本</span><strong>{latestPublished}</strong><small>发布状态来自实际 Release / 镜像 Tag / 发布流水线，不把普通 CI 成功当作正式 Release。</small></div>
+      <div className="release-overview"><span>最近正式版本</span><strong>{latestPublished}</strong><small>发布状态来自实际 Release / 镜像 Tag / 发布流水线；GitHub 事件变化会自动刷新。</small></div>
 
       <div className="section-title"><div><h2>项目发布状态</h2><p>每个渠道独立判断，部分失败不会把整个项目误标为成功</p></div></div>
       <div className="release-project-grid">{data.projects.map(({ project, latestRelease, channels }) => <article className="release-project-card" key={project.id}>
