@@ -66,7 +66,7 @@ async function buildProjectRelease(project: Project) {
   const dockerPromise = config.dockerImage ? buildDockerHubChannel(config.dockerImage) : Promise.resolve(null);
   const [{ releases, error: releasesError }, workflowChannels, dockerChannel] = await Promise.all([releasesPromise, workflowChannelsPromise, dockerPromise]);
 
-  const latest = releases[0] || null;
+  const latest = releases.at(0) || null;
   const githubChannel: Channel = releasesError
     ? {
         kind: 'github',
@@ -112,7 +112,7 @@ async function buildWorkflowChannel(project: Project, config: NonNullable<Projec
       return { kind: config.kind, label: config.label, status: 'unavailable', summary: '未找到对应流水线', detail: config.detail };
     }
     const runs = await listRunsForWorkflow(project, workflow.id, 1);
-    const run = runs[0];
+    const run = runs.at(0);
     if (!run) return { kind: config.kind, label: config.label, status: 'empty', summary: '尚未执行', detail: config.detail };
     return {
       kind: config.kind,
@@ -131,17 +131,18 @@ async function buildWorkflowChannel(project: Project, config: NonNullable<Projec
 async function buildDockerHubChannel(image: string): Promise<Channel> {
   try {
     const [namespace, repository] = image.split('/');
+    if (!namespace || !repository) return { kind: 'dockerhub', label: 'Docker Hub', status: 'unavailable', summary: '镜像配置无效', detail: image };
     const response = await fetch(`https://hub.docker.com/v2/repositories/${namespace}/${repository}/tags?page_size=8&ordering=last_updated`, {
       signal: AbortSignal.timeout(6500),
-      headers: { 'User-Agent': 'Nowen-Forge/0.2' }
+      headers: { 'User-Agent': 'Nowen-Forge/0.3' }
     });
     if (!response.ok) {
       return { kind: 'dockerhub', label: 'Docker Hub', status: response.status === 404 ? 'empty' : 'unavailable', summary: response.status === 404 ? '镜像尚未发布' : `Docker Hub HTTP ${response.status}`, detail: image, url: `https://hub.docker.com/r/${image}` };
     }
     const body = await response.json() as { results?: Array<{ name: string; last_updated?: string }> };
     const tags = body.results || [];
-    if (!tags.length) return { kind: 'dockerhub', label: 'Docker Hub', status: 'empty', summary: '暂无镜像 Tag', detail: image, url: `https://hub.docker.com/r/${image}` };
-    const latest = tags[0];
+    const latest = tags.at(0);
+    if (!latest) return { kind: 'dockerhub', label: 'Docker Hub', status: 'empty', summary: '暂无镜像 Tag', detail: image, url: `https://hub.docker.com/r/${image}` };
     return {
       kind: 'dockerhub',
       label: 'Docker Hub',
