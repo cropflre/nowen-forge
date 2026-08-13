@@ -232,6 +232,35 @@ export type ReleasePlan = {
   runs: ReleasePlanRun[];
 };
 
+export type ReleaseRecoveryAttempt = {
+  id: number;
+  planId: number;
+  kind: 'workflow' | 'gitee' | 'testflight' | 'dockerhub';
+  target: string;
+  action: string;
+  runRowId: number | null;
+  workflowId: string | null;
+  workflowPath: string | null;
+  sourceRunId: number | null;
+  runId: number | null;
+  status: 'requested' | 'running' | 'waiting_platform' | 'success' | 'failed';
+  detail: string | null;
+  requestedAt: string;
+  updatedAt: string;
+};
+
+export type ReleaseRecoveryChannel = ReleaseChannel & {
+  retryable: boolean;
+  retryLabel: string | null;
+  recheckOnly: boolean;
+};
+
+export type ReleaseRecoveryState = {
+  plan: ReleasePlan;
+  channels: ReleaseRecoveryChannel[];
+  recoveries: ReleaseRecoveryAttempt[];
+};
+
 export type ReleasePreflight = {
   project: Project;
   version: string;
