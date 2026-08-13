@@ -2,6 +2,8 @@ import type { Project, ManifestChannelRecord } from './db.js';
 import { findReleaseManifest, insertReleaseManifest, listReleaseManifests } from './db.js';
 import { getRunDetails } from './github.js';
 import { getManifestReleaseEvidence, syncManifestReleaseEvidence, withReleaseEvidence } from './releaseEvidence.js';
+import { syncManifestRunAttemptEvidence } from './runAttemptEvidence.js';
+import { syncManifestDockerEvidence } from './dockerEvidence.js';
 import { buildReleaseCenter } from './releases.js';
 
 function normalizeVersion(value: string) {
@@ -70,6 +72,13 @@ function buildChannelSnapshot(releaseProject: any, version: string): ManifestCha
   });
 }
 
+async function syncSupplementalEvidence(manifestId: number) {
+  await Promise.allSettled([
+    syncManifestRunAttemptEvidence(manifestId),
+    syncManifestDockerEvidence(manifestId)
+  ]);
+}
+
 export async function createManifestFromRun(project: Project, runId: number, requestedVersion?: string) {
   const details = await getRunDetails(project, runId);
   if (details.run.status !== 'completed') {
@@ -86,6 +95,7 @@ export async function createManifestFromRun(project: Project, runId: number, req
 
   const existing = findReleaseManifest(project.id, runId, version);
   if (existing) {
+    await syncSupplementalEvidence(existing.id);
     try {
       const synced = await syncManifestReleaseEvidence(existing.id);
       return { manifest: synced.manifest, existed: true };
@@ -122,6 +132,7 @@ export async function createManifestFromRun(project: Project, runId: number, req
     artifacts
   });
 
+  await syncSupplementalEvidence(manifest.id);
   try {
     const synced = await syncManifestReleaseEvidence(manifest.id);
     return { manifest: synced.manifest, existed: false };
