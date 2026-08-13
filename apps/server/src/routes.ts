@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { getProject, getReleaseManifest, listProjects, recordDispatch } from './db.js';
 import { cancelRun, dispatchWorkflow, downloadArtifactArchive, getRepo, getRunDetails, getWorkflowSchema, githubConfigured, listRefs, listRuns, listWorkflows, rerunFailed } from './github.js';
 import { buildManifestCenter, createManifestFromRun } from './manifests.js';
+import { syncManifestReleaseEvidence, withReleaseEvidence } from './releaseEvidence.js';
 import { buildReleaseCenter } from './releases.js';
 import { buildReleasePlanCenter, getReleasePlan, preflightRelease, startReleasePlan } from './releasePlans.js';
 import { getPollIntervalMs, publishRealtime, webhookConfigured } from './realtime.js';
@@ -32,13 +33,13 @@ export async function registerApi(app: FastifyInstance) {
   app.get('/api/health', async () => ({
     ok: true,
     githubConfigured,
-    version: '0.5.0',
+    version: '0.6.0',
     realtime: {
       sse: true,
       webhookConfigured,
       pollIntervalMs: getPollIntervalMs()
     },
-    manifests: { immutable: true, githubArtifactDigest: true },
+    manifests: { immutable: true, githubArtifactDigest: true, githubReleaseAssetDigest: true, appendOnlyReleaseEvidence: true },
     releaseOrchestrator: { enabled: true, persistent: true, tagPreflight: true }
   }));
 
@@ -117,7 +118,23 @@ export async function registerApi(app: FastifyInstance) {
     const { manifestId } = request.params as { manifestId: string };
     const manifest = getReleaseManifest(Number(manifestId));
     if (!manifest) return reply.code(404).send({ message: 'Manifest not found' });
-    return manifest;
+    return withReleaseEvidence(manifest);
+  });
+
+  app.post('/api/manifests/:manifestId/sync-release-assets', async (request, reply) => {
+    if (!githubConfigured) return reply.code(409).send({ message: 'GITHUB_TOKEN is not configured on the server' });
+    const { manifestId } = request.params as { manifestId: string };
+    const result = await syncManifestReleaseEvidence(Number(manifestId));
+    const manifest = result.manifest;
+    publishRealtime({
+      type: 'release',
+      projectId: manifest.project.id,
+      projectSlug: manifest.project.slug,
+      repository: `${manifest.project.owner}/${manifest.project.repo}`,
+      source: 'forge',
+      action: result.found ? 'release-assets-synced' : 'release-assets-not-found'
+    });
+    return reply.send(result);
   });
 
   app.post('/api/projects/:id/release/preflight', async (request) => {
