@@ -1,11 +1,12 @@
 import type { ReactNode } from 'react';
-import { Activity, Archive, Boxes, GitBranch, Hammer, Rocket, Settings } from 'lucide-react';
+import { Activity, Archive, Boxes, GitBranch, Hammer, Rocket, Send, Settings } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 
 const nav = [
   { to: '/', label: '仪表盘', icon: Activity },
   { to: '/projects', label: '项目', icon: Boxes },
   { to: '/runs', label: '构建记录', icon: GitBranch },
+  { to: '/publish', label: '一键发布', icon: Send },
   { to: '/releases', label: '发布中心', icon: Rocket },
   { to: '/artifacts', label: '制品中心', icon: Archive },
   { to: '/settings', label: '设置', icon: Settings }

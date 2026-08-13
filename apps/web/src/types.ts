@@ -155,6 +155,76 @@ export type ManifestCenter = {
   };
 };
 
+export type ReleasePlanStatus = 'PREPARING' | 'WAITING_RUNS' | 'RUNNING' | 'SUCCEEDED' | 'PARTIAL' | 'FAILED';
+
+export type ReleasePlanRun = {
+  id: number;
+  workflowId: string;
+  workflowPath: string;
+  workflowName: string;
+  role: string;
+  required: boolean;
+  dispatchInputs: Record<string, string>;
+  dispatchState: 'pending' | 'auto' | 'manual' | 'fallback' | 'failed';
+  dispatchError: string | null;
+  runId: number | null;
+  runNumber: number | null;
+  status: string | null;
+  conclusion: string | null;
+  runUrl: string | null;
+  manifestId: number | null;
+  updatedAt: string;
+};
+
+export type ReleasePlan = {
+  id: number;
+  project: Project;
+  version: string;
+  sourceRef: string;
+  sourceSha: string;
+  sourceUrl: string;
+  tagName: string;
+  strategy: 'tag-auto-with-dispatch-fallback' | 'tag-dispatch';
+  status: ReleasePlanStatus;
+  tagCreated: boolean;
+  tagReused: boolean;
+  warnings: string[];
+  errorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+  runs: ReleasePlanRun[];
+};
+
+export type ReleasePreflight = {
+  project: Project;
+  version: string;
+  tagName: string;
+  sourceRef: string;
+  sourceSha: string;
+  sourceUrl: string;
+  strategy: 'tag-auto-with-dispatch-fallback' | 'tag-dispatch';
+  tag: { exists: boolean; sha: string | null; matchesSource: boolean | null };
+  workflows: Array<{
+    workflowId: number | null;
+    workflowPath: string;
+    workflowName: string;
+    role: string;
+    required: boolean;
+    dispatchable: boolean;
+    inputs: Record<string, string>;
+  }>;
+  warnings: string[];
+  blockingReasons: string[];
+  existingPlan: { id: number; status: ReleasePlanStatus } | null;
+  canStart: boolean;
+};
+
+export type ReleasePlanCenter = {
+  plans: ReleasePlan[];
+  stats: { total: number; active: number; succeeded: number; attention: number };
+};
+
 export type Dashboard = {
   githubConfigured: boolean;
   projects: Array<Project & { latestRun: Run | null; error: string | null }>;

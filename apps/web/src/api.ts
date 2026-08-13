@@ -1,4 +1,4 @@
-import type { ManifestCenter, ReleaseCenter, ReleaseManifest, WorkflowSchema } from './types';
+import type { ManifestCenter, ReleaseCenter, ReleaseManifest, ReleasePlan, ReleasePlanCenter, ReleasePreflight, WorkflowSchema } from './types';
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, { ...init, headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) } });
@@ -26,5 +26,9 @@ export const api = {
   manifest: (manifestId: number) => request<ReleaseManifest>(`/api/manifests/${manifestId}`),
   createManifest: (projectId: number, runId: number, version?: string) => request<{ manifest: ReleaseManifest; existed: boolean }>(`/api/projects/${projectId}/runs/${runId}/manifest`, { method: 'POST', body: JSON.stringify(version ? { version } : {}) }),
   artifactDownloadUrl: (projectId: number, artifactId: number) => `/api/projects/${projectId}/artifacts/${artifactId}/download`,
+  releasePreflight: (projectId: number, version: string, sourceRef: string) => request<ReleasePreflight>(`/api/projects/${projectId}/release/preflight`, { method: 'POST', body: JSON.stringify({ version, sourceRef }) }),
+  startRelease: (projectId: number, version: string, sourceRef: string) => request<{ plan: ReleasePlan }>(`/api/projects/${projectId}/release/start`, { method: 'POST', body: JSON.stringify({ version, sourceRef }) }),
+  releasePlans: () => request<ReleasePlanCenter>('/api/release-plans'),
+  releasePlan: (planId: number) => request<ReleasePlan>(`/api/release-plans/${planId}`),
   health: () => request<any>('/api/health')
 };

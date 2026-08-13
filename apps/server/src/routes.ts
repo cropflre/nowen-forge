@@ -5,6 +5,7 @@ import { getProject, getReleaseManifest, listProjects, recordDispatch } from './
 import { cancelRun, dispatchWorkflow, downloadArtifactArchive, getRepo, getRunDetails, getWorkflowSchema, githubConfigured, listRefs, listRuns, listWorkflows, rerunFailed } from './github.js';
 import { buildManifestCenter, createManifestFromRun } from './manifests.js';
 import { buildReleaseCenter } from './releases.js';
+import { buildReleasePlanCenter, getReleasePlan, preflightRelease, startReleasePlan } from './releasePlans.js';
 import { getPollIntervalMs, publishRealtime, webhookConfigured } from './realtime.js';
 
 const dispatchSchema = z.object({
@@ -14,6 +15,11 @@ const dispatchSchema = z.object({
 
 const manifestSchema = z.object({
   version: z.string().trim().min(1).max(100).optional()
+});
+
+const releasePlanSchema = z.object({
+  version: z.string().trim().min(1).max(100),
+  sourceRef: z.string().trim().min(1).max(200)
 });
 
 function requireProject(id: string) {
@@ -26,13 +32,14 @@ export async function registerApi(app: FastifyInstance) {
   app.get('/api/health', async () => ({
     ok: true,
     githubConfigured,
-    version: '0.4.0',
+    version: '0.5.0',
     realtime: {
       sse: true,
       webhookConfigured,
       pollIntervalMs: getPollIntervalMs()
     },
-    manifests: { immutable: true, githubArtifactDigest: true }
+    manifests: { immutable: true, githubArtifactDigest: true },
+    releaseOrchestrator: { enabled: true, persistent: true, tagPreflight: true }
   }));
 
   app.get('/api/projects', async () => ({ projects: listProjects() }));
@@ -111,6 +118,38 @@ export async function registerApi(app: FastifyInstance) {
     const manifest = getReleaseManifest(Number(manifestId));
     if (!manifest) return reply.code(404).send({ message: 'Manifest not found' });
     return manifest;
+  });
+
+  app.post('/api/projects/:id/release/preflight', async (request) => {
+    const { id } = request.params as { id: string };
+    const body = releasePlanSchema.parse(request.body ?? {});
+    return preflightRelease(requireProject(id), body.version, body.sourceRef);
+  });
+
+  app.post('/api/projects/:id/release/start', async (request, reply) => {
+    if (!githubConfigured) return reply.code(409).send({ message: 'GITHUB_TOKEN is not configured on the server' });
+    const { id } = request.params as { id: string };
+    const project = requireProject(id);
+    const body = releasePlanSchema.parse(request.body ?? {});
+    const plan = await startReleasePlan(project, body.version, body.sourceRef);
+    publishRealtime({
+      type: 'release',
+      projectId: project.id,
+      projectSlug: project.slug,
+      repository: `${project.owner}/${project.repo}`,
+      source: 'forge',
+      action: `release-plan:${plan.id}:started`
+    });
+    return reply.code(201).send({ plan });
+  });
+
+  app.get('/api/release-plans', async () => buildReleasePlanCenter());
+
+  app.get('/api/release-plans/:planId', async (request, reply) => {
+    const { planId } = request.params as { planId: string };
+    const plan = await getReleasePlan(Number(planId));
+    if (!plan) return reply.code(404).send({ message: 'Release plan not found' });
+    return plan;
   });
 
   app.post('/api/projects/:id/workflows/:workflowId/dispatch', async (request, reply) => {

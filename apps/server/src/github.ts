@@ -44,6 +44,32 @@ export async function getRepo(project: Project) {
   return { defaultBranch: data.default_branch, private: data.private, htmlUrl: data.html_url };
 }
 
+export async function resolveCommit(project: Project, ref: string) {
+  const { data } = await octokit.rest.repos.getCommit({ owner: project.owner, repo: project.repo, ref });
+  return { sha: data.sha, htmlUrl: data.html_url };
+}
+
+export async function getTagCommit(project: Project, tagName: string) {
+  try {
+    await octokit.rest.git.getRef({ owner: project.owner, repo: project.repo, ref: `tags/${tagName}` });
+    const commit = await resolveCommit(project, tagName);
+    return { exists: true as const, sha: commit.sha };
+  } catch (error) {
+    if ((error as { status?: number })?.status === 404) return { exists: false as const, sha: null };
+    throw error;
+  }
+}
+
+export async function createTagRef(project: Project, tagName: string, sha: string) {
+  const { data } = await octokit.rest.git.createRef({
+    owner: project.owner,
+    repo: project.repo,
+    ref: `refs/tags/${tagName}`,
+    sha
+  });
+  return { ref: data.ref, sha: data.object.sha };
+}
+
 export async function getWorkflowSchema(project: Project, workflowId: string) {
   const workflows = await listWorkflows(project);
   const workflow = workflows.find((item) => String(item.id) === String(workflowId));
@@ -122,6 +148,11 @@ export async function listRunsForWorkflow(project: Project, workflowId: number |
     per_page: Math.min(perPage, 20)
   });
   return data.workflow_runs.map(mapRun);
+}
+
+export async function getWorkflowRun(project: Project, runId: number) {
+  const { data } = await octokit.rest.actions.getWorkflowRun({ owner: project.owner, repo: project.repo, run_id: runId });
+  return mapRun(data);
 }
 
 export async function listGithubReleases(project: Project, perPage = 10) {
@@ -206,7 +237,7 @@ export async function downloadArtifactArchive(project: Project, artifactId: numb
       Accept: 'application/vnd.github+json',
       Authorization: `Bearer ${token}`,
       'X-GitHub-Api-Version': '2022-11-28',
-      'User-Agent': 'Nowen-Forge/0.4'
+      'User-Agent': 'Nowen-Forge/0.5'
     }
   });
   if (!response.ok || !response.body) {
