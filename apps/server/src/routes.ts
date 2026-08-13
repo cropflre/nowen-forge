@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getProject, listProjects, recordDispatch } from './db.js';
 import { cancelRun, dispatchWorkflow, getRepo, getRunDetails, getWorkflowSchema, githubConfigured, listRefs, listRuns, listWorkflows, rerunFailed } from './github.js';
 import { buildReleaseCenter } from './releases.js';
+import { getPollIntervalMs, publishRealtime, webhookConfigured } from './realtime.js';
 
 const dispatchSchema = z.object({
   ref: z.string().min(1),
@@ -16,7 +17,16 @@ function requireProject(id: string) {
 }
 
 export async function registerApi(app: FastifyInstance) {
-  app.get('/api/health', async () => ({ ok: true, githubConfigured, version: '0.2.0' }));
+  app.get('/api/health', async () => ({
+    ok: true,
+    githubConfigured,
+    version: '0.3.0',
+    realtime: {
+      sse: true,
+      webhookConfigured,
+      pollIntervalMs: getPollIntervalMs()
+    }
+  }));
 
   app.get('/api/projects', async () => ({ projects: listProjects() }));
 
@@ -69,20 +79,32 @@ export async function registerApi(app: FastifyInstance) {
 
     await dispatchWorkflow(project, workflowId, body.ref, body.inputs);
     recordDispatch(project.id, workflowId, schema.name, body.ref, body.inputs);
+    publishRealtime({
+      type: 'dispatch',
+      projectId: project.id,
+      projectSlug: project.slug,
+      repository: `${project.owner}/${project.repo}`,
+      source: 'forge',
+      action: `workflow:${workflowId}`
+    });
     return reply.code(202).send({ ok: true });
   });
 
   app.post('/api/projects/:id/runs/:runId/rerun-failed', async (request, reply) => {
     if (!githubConfigured) return reply.code(409).send({ message: 'GITHUB_TOKEN is not configured on the server' });
     const { id, runId } = request.params as { id: string; runId: string };
-    await rerunFailed(requireProject(id), Number(runId));
+    const project = requireProject(id);
+    await rerunFailed(project, Number(runId));
+    publishRealtime({ type: 'run', projectId: project.id, projectSlug: project.slug, repository: `${project.owner}/${project.repo}`, source: 'forge', action: 'rerun-failed' });
     return reply.code(202).send({ ok: true });
   });
 
   app.post('/api/projects/:id/runs/:runId/cancel', async (request, reply) => {
     if (!githubConfigured) return reply.code(409).send({ message: 'GITHUB_TOKEN is not configured on the server' });
     const { id, runId } = request.params as { id: string; runId: string };
-    await cancelRun(requireProject(id), Number(runId));
+    const project = requireProject(id);
+    await cancelRun(project, Number(runId));
+    publishRealtime({ type: 'run', projectId: project.id, projectSlug: project.slug, repository: `${project.owner}/${project.repo}`, source: 'forge', action: 'cancel' });
     return reply.code(202).send({ ok: true });
   });
 
