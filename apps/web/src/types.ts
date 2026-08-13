@@ -89,6 +89,7 @@ export type ReleaseChannel = {
   updatedAt?: string | null;
   url?: string | null;
   tags?: string[];
+  verification?: 'platform' | 'workflow' | 'unconfigured';
 };
 
 export type ReleaseCenter = {
@@ -103,6 +104,8 @@ export type ReleaseCenter = {
     projectCount: number;
     channelCount: number;
     publishedProjectCount: number;
+    platformVerifiedCount: number;
+    unverifiedCount: number;
     attentionCount: number;
   };
 };
